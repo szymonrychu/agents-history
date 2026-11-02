@@ -1,0 +1,6 @@
+apiVersion: v2
+name: agents-history
+description: Session history service (ingest, search and read of discarded agent sessions)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

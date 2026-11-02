@@ -1,0 +1,9 @@
+{{- include "agents-history.validate" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agents-history.fullname" . }}-settings
+  labels:
+    {{- include "agents-history.labels" . | nindent 4 }}
+data:
+  {{- include "agents-history.config" . | nindent 2 }}
