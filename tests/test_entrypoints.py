@@ -226,7 +226,10 @@ async def test_token_listeners_serve_behind_their_tokens(db_url: str, settings_f
                         if (await http.get("/healthz")).status_code == 200:
                             break
                     except httpx.HTTPError:
-                        await asyncio.sleep(0.05)
+                        pass
+                    await asyncio.sleep(0.05)
+                else:
+                    pytest.fail(f"listener {http.base_url} never answered 200 on /healthz")
             svc = {"Authorization": "Bearer svc-test-token"}
             ing = {"Authorization": "Bearer ingest-test-token"}
             assert (await ui.get("/history/v1/x")).status_code == 404
