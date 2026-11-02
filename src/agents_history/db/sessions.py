@@ -59,11 +59,17 @@ async def replace_session(
     """Store one export in one transaction: drop any stored copy of the session, insert the
     session row, COPY every record, then set the per-kind counts and the byte total (every
     line, the session line included). Any exception, an ExportError from `records` included,
-    rolls the whole transaction back, so a previous copy stays intact."""
+    rolls the whole transaction back, so a previous copy stays intact. Concurrent calls for one
+    session take a transaction-scoped advisory lock keyed on its id and run one after the other."""
     counts: Counter[str] = Counter()
     truncated = 0
     size = head.size
     async with conn.transaction():
+        # Serialise deliveries of one session: the second waits here, then replaces the first
+        # copy, instead of failing on the unique index.
+        await conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (str(head.session_id),)
+        )
         deleted = await conn.execute(
             "DELETE FROM sessions WHERE session_id = %s", (head.session_id,)
         )

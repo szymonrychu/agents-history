@@ -1,5 +1,6 @@
 """POST /history/v1/ingest over a migrated database (Postgres: CI, or a local server)."""
 
+import asyncio
 import json
 import logging
 import uuid
@@ -156,6 +157,18 @@ async def test_redelivery_replaces(app, aconn):
     assert second.json()["records"] == len(stored_kinds(lines))
     assert await rows(aconn, "SELECT count(*) FROM records") == [(len(stored_kinds(lines)),)]
     assert await rows(aconn, "SELECT count(*) FROM sessions") == [(1,)]
+
+
+async def test_concurrent_deliveries_of_one_session_both_succeed(app, aconn):
+    """Two overlapping deliveries of a new session serialise on the session id: both answer 201
+    (the later one replaces) and one copy is stored, instead of a UniqueViolation 500."""
+    body = export(SID, events=2000)
+    kinds = stored_kinds(export_lines(SID, events=2000))
+    first, second = await asyncio.gather(post(app, body, sid=SID), post(app, body, sid=SID))
+    assert [r.status_code for r in (first, second)] == [201, 201]
+    assert sorted(r.json()["replaced"] for r in (first, second)) == [False, True]
+    assert await rows(aconn, "SELECT count(*) FROM sessions") == [(1,)]
+    assert await rows(aconn, "SELECT count(*) FROM records") == [(len(kinds),)]
 
 
 async def test_bad_line_rolls_back_and_keeps_previous(app, aconn):

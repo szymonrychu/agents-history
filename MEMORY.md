@@ -10,7 +10,7 @@ Lessons that outlive a session. Newest first.
 - There is no total body cap: the body is streamed line by line (at most `HISTORY_INGEST_MAX_LINE_BYTES` of one line in memory) and an over line is stored truncated, so a cap would only refuse a long session, and a refused export blocks the discard forever.
 - Postgres jsonb refuses NUL, lone surrogates and NaN/Infinity, which `json.loads` accepts. `db.sessions.jsonb_safe` copies every body (records and the session record) with strings and keys through `export.clean_str` (NUL removed, lone surrogate to U+FFFD) and non-finite numbers as null; the A2 parser keeps the body as parsed.
 - `SessionHead.size` carries the session line size so `sessions.bytes` counts every line, while `replace_session` keeps the `(conn, head, records)` signature later tasks seed with.
-- Two concurrent deliveries of one session: the second waits on the unique index and gets a 500 if the first commits; the orchestrator's retry then replaces. No advisory lock, to keep the transaction simple.
+- Two concurrent deliveries of one session serialise on `pg_advisory_xact_lock(hashtextextended(session_id, 0))` taken first in the ingest transaction: the second waits, then replaces the first copy. Without it the second hit the `session_id` unique index and answered 500 (A3 review finding 1), which made the orchestrator record a spurious `discard_hook_failed` and back off. (2026-11-02, supersedes the earlier no-lock note.)
 
 ## 2026-11-02 - export line parser (session-history A2)
 
