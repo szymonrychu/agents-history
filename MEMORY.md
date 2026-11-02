@@ -2,6 +2,12 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-02 - export line parser (session-history A2)
+
+- Oversize lines (above `HISTORY_INGEST_MAX_LINE_BYTES`) are stored truncated instead of refusing the export: a refused export would block the orchestrator's discard forever. `iter_lines` therefore buffers at most `max_line_bytes` of one line and keeps only the first 1 MiB of an over line; `parse_line` builds its body from `kind` and `id` found by regex in that prefix.
+- The optional session fields (`preset_id`, `preset_name`, `created_by_service`, `created_by_session`) that are missing or do not parse become None in `session_head`, for the same reason; only `id`, `slug` and `created_at` can make the export `bad_export`.
+- `record_text` is iterative, so a deeply nested record cannot overflow the stack after `json.loads` accepted it.
+
 ## 2026-11-02 - service skeleton (session-history A1)
 
 - The skeleton is copied from agents-usage (settings, cli, runtime, the three listener factories, CI workflow with the release job) with the prober, watcher, claude and orchestrator pieces removed; the Dockerfile comes from agents-schedule (no node, no claude, entrypoint `history`). `uv.lock` is generated with `uv lock`, not copied.
