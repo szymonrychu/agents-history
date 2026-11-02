@@ -36,8 +36,8 @@ Q_MAX = 500
 
 
 def checked_q(q: str | None) -> str | None:
-    """`q` when it is 3 to 500 characters, None when absent or empty, else 422."""
-    if q is None or q == "":
+    """`q` when it is 3 to 500 characters, None when absent, else 422 (an empty `q` included)."""
+    if q is None:
         return None
     if not Q_MIN <= len(q) <= Q_MAX:
         raise ApiError(422, "query_too_short", f"q must be {Q_MIN} to {Q_MAX} characters")
@@ -72,16 +72,18 @@ async def list_sessions(
     with search_errors():
         async with request.app.state.pool.connection() as conn:
             rows = await read.list_sessions(conn, f, request.app.state.search_timeout_ms)
-    return [_summary(row, q, regex) for row in rows]
+    return [_summary(row) for row in rows]
 
 
-def _summary(row: dict, q: str | None, regex: bool) -> SessionSummary:
+def _summary(row: dict) -> SessionSummary:
     matches = [
         MatchView(
             record_id=m["record_id"],
             kind=m["kind"],
             ts=m["ts"],
-            snippet=read.snippet(m["text"], q or "", regex),
+            snippet=read.snippet(
+                m["win"], m["start"], m["end"], cut_left=m["cut_left"], cut_right=m["cut_right"]
+            ),
         )
         for m in row["matches"]
     ]

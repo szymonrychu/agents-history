@@ -1,6 +1,7 @@
 """List, search, detail, records and delete over a migrated database (Postgres: CI, or a local
 server). Sessions are seeded through `replace_session`; `discarded_at` is moved with UPDATE."""
 
+import time
 import uuid
 from datetime import UTC, datetime
 
@@ -141,12 +142,14 @@ async def test_invalid_regex_422(client, db):
 
 async def test_short_query_422(client, db):
     sid = await seed(db, [rec("message", "abc")])
-    for q in ("ab", "x" * 501):
+    for q in ("", "ab", "x" * 501):
         r = await client.get(SESSIONS, params={"q": q})
         assert r.status_code == 422
         assert r.json()["error"]["code"] == "query_too_short"
-    r = await client.get(f"{SESSIONS}/{sid}/records", params={"q": "ab"})
-    assert r.json()["error"]["code"] == "query_too_short"
+    for q in ("", "ab"):
+        r = await client.get(f"{SESSIONS}/{sid}/records", params={"q": q})
+        assert r.status_code == 422
+        assert r.json()["error"]["code"] == "query_too_short"
     assert len(await listed(client, q="x" * 500, regex="false")) == 0
 
 
@@ -156,6 +159,64 @@ async def test_search_timeout_422(client, app, db):
     r = await client.get(SESSIONS, params={"q": ".*a.*b.*c.*d.*e", "regex": "true"})
     assert r.status_code == 422
     assert r.json()["error"]["code"] == "search_timeout"
+
+
+SLOW_RX = "^(.*)(.*)(.*)\\1\\2\\3$"  # Postgres backtracks on back-references: minutes on 4000 chars
+
+
+async def test_catastrophic_regex_answers_search_timeout_in_bound(client, app, db):
+    """The user's regex runs only inside the one timed statement (snippet spans included)."""
+    app.state.search_timeout_ms = 400
+    await seed(db, [rec("message", "ab" * 2000 + "c")])
+    started = time.monotonic()
+    r = await client.get(SESSIONS, params={"q": SLOW_RX, "regex": "true"})
+    assert time.monotonic() - started < 4
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "search_timeout"
+
+
+async def test_catastrophic_regex_for_backtracking_engines_is_instant(client, db):
+    """`(a+)+c` takes 25 s in Python's re; Postgres finds the span at once, so no Python regex."""
+    text = "a" * 40 + "b aaac"
+    sid = await seed(db, [rec("message", text)])
+    started = time.monotonic()
+    [found] = await listed(client, q="(a+)+c", regex="true")
+    assert time.monotonic() - started < 2
+    assert found["session_id"] == str(sid)
+    assert text in found["matches"][0]["snippet"]
+
+
+async def test_catastrophic_regex_on_records_answers_search_timeout(client, app, db):
+    app.state.search_timeout_ms = 400
+    sid = await seed(db, [rec("message", "ab" * 2000 + "c")])
+    started = time.monotonic()
+    r = await client.get(f"{SESSIONS}/{sid}/records", params={"q": SLOW_RX, "regex": "true"})
+    assert time.monotonic() - started < 4
+    assert r.json()["error"]["code"] == "search_timeout"
+
+
+async def test_invalid_regex_422_with_nothing_to_scan(client, db):
+    """No row meets the pattern: it is still compiled (by the planner), so 422 not 200."""
+    r = await client.get(SESSIONS, params={"q": "(abc", "regex": "true"})
+    assert r.json()["error"]["code"] == "invalid_regex"
+    sid = await seed(db, [rec("message", "abc")])
+    r = await client.get(
+        f"{SESSIONS}/{sid}/records", params={"q": "(abc", "regex": "true", "kind": "none"}
+    )
+    assert r.json()["error"]["code"] == "invalid_regex"
+    r = await client.get(
+        SESSIONS, params={"q": "(abc", "regex": "true", "preset": "no-such-preset"}
+    )
+    assert r.json()["error"]["code"] == "invalid_regex"
+
+
+async def test_snippet_is_centred_on_the_match_from_the_database(client, db):
+    await seed(db, [rec("message", "a" * 1000 + "NEEDLE" + "b" * 1000)])
+    [found] = await listed(client, q="needle")
+    s = found["matches"][0]["snippet"]
+    assert "NEEDLE" in s and len(s) <= 166 and s.startswith("...") and s.endswith("...")
+    [found] = await listed(client, q="n[e]+dle", regex="true")
+    assert "NEEDLE" in found["matches"][0]["snippet"]
 
 
 async def test_matches_capped_at_three(client, db):

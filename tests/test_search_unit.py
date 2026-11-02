@@ -10,40 +10,44 @@ def test_escape_like():
     assert escape_like("50%_a\\b") == "50\\%\\_a\\\\b"
 
 
+def span(text: str, needle: str) -> tuple[int, int]:
+    start = text.index(needle)
+    return start, start + len(needle)
+
+
 def test_snippet_centres_match():
     text = "a" * 1000 + "NEEDLE" + "b" * 1000
-    s = snippet(text, "needle", False)
+    s = snippet(text, *span(text, "NEEDLE"))
     assert "NEEDLE" in s
     assert len(s) <= 166
     assert s.startswith("...") and s.endswith("...")
 
 
 def test_snippet_near_the_start_and_end_has_one_marker():
-    assert snippet("NEEDLE" + "b" * 500, "needle", False) == "NEEDLE" + "b" * 154 + "..."
-    assert snippet("a" * 500 + "NEEDLE", "needle", False) == "..." + "a" * 154 + "NEEDLE"
+    text = "NEEDLE" + "b" * 500
+    assert snippet(text, *span(text, "NEEDLE")) == "NEEDLE" + "b" * 154 + "..."
+    text = "a" * 500 + "NEEDLE"
+    assert snippet(text, *span(text, "NEEDLE")) == "..." + "a" * 154 + "NEEDLE"
 
 
 def test_snippet_short_text_is_whole():
-    assert snippet("Deploy FAILED today", "deploy failed", False) == "Deploy FAILED today"
+    text = "Deploy FAILED today"
+    assert snippet(text, *span(text, "FAILED")) == text
 
 
-def test_snippet_substring_mode_is_literal():
-    assert snippet("x" * 300 + "a.c" + "y" * 300, "a.c", False).count("a.c") == 1
-    assert snippet("abc is here, a.c is not", "a.c", False).startswith("abc is here")
+def test_snippet_window_cut_flags_add_markers():
+    assert snippet("xxNEEDLExx", 2, 8, cut_left=True, cut_right=True) == "...xxNEEDLExx..."
 
 
-def test_snippet_regex_mode():
-    text = "a" * 400 + "failure" + "b" * 400
-    assert "failure" in snippet(text, "fail(ed|ure)", True)
-
-
-def test_snippet_regex_fallback():
-    text = "x" * 500
-    assert snippet(text, "[[:alpha:]]+(?", True) == text[:160]
+def test_snippet_match_longer_than_the_window_is_clamped():
+    s = snippet("a" * 100, 10, 5000, width=40)
+    assert 0 < len(s) <= 46
 
 
 def test_snippet_without_a_match_is_the_start():
-    assert snippet("z" * 500, "needle", False) == "z" * 160
+    """Replaces test_snippet_regex_fallback: the user's pattern no longer runs in Python, the
+    database gives no span when it found none, and the snippet is the first 160 characters."""
+    assert snippet("z" * 500, None, None) == "z" * 160
 
 
 def paths(app) -> dict[str, set[str]]:
