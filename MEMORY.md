@@ -21,6 +21,12 @@ Lessons that outlive a session. Newest first.
 - `agents` of the detail come from the `agent` records (`id`, `ordinal`, `pod_name` in the body); an agent record without integer id and ordinal is left out.
 - Delete is mounted on the UI listener only (`read.delete_router`); the service listener answers 405 to DELETE on the same path. User decision Q6 (mx-99 #691): the superleader gets read and search only. `delete_session` is a write, so it lives in `db/sessions.py`; `db/read.py` stays read-only.
 
+## 2026-11-02 - openapi documents and readme (session-history A6)
+
+- Two committed documents, one per listener that has a spec: `openapi.json` (UI: read, delete, settings) and `openapi-service.json` (service: exactly the three GET routes, no delete anywhere, Q6). The ingest route is documented in the README only: nothing vendors it, and its raw streaming body has no FastAPI schema.
+- The documents hold only `/history/v1` paths (the probes are left out) so the orchestrator relay contract test, which binds every relay entry to the upstream spec in both directions, sees exactly the API. The guard error is per listener (403 on the UI, 401 on the service); the route errors are the shared `ErrorResponse` shape, as agents-usage.
+- Routes of a listener are listed from the generated openapi, not `app.routes` (FastAPI 0.162 includes routers lazily).
+
 ## 2026-11-02 - ingest (session-history A3)
 
 - A re-delivery replaces: one transaction deletes the stored session (records cascade), inserts the session row, COPYs the records and sets the counts. An ExportError mid-stream or a dropped connection rolls it all back, so the previous copy stays intact and nothing half-stored is ever visible.
