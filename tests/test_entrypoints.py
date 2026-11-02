@@ -241,3 +241,42 @@ async def test_token_listeners_serve_behind_their_tokens(db_url: str, settings_f
     finally:
         stop.set()
         await serving
+
+
+async def test_serve_sweeps_at_start_and_when_retention_is_lowered(db_url: str, settings_for):
+    port = free_port()
+    settings = settings_for(db_url, http_host="127.0.0.1", http_port=port)
+    async with await psycopg.AsyncConnection.connect(db_url, autocommit=True) as db:
+        for sid, days_ago in (("00000000-0000-0000-0000-000000000001", 100), ("0" * 31 + "2", 40)):
+            await db.execute(
+                "INSERT INTO sessions (session_id, slug, created_at, discarded_at, session)"
+                " VALUES (%s, 's', now(), now() - make_interval(days => %s), '{}')",
+                (sid, days_ago),
+            )
+
+        async def stored() -> int:
+            return (await (await db.execute("SELECT count(*) FROM sessions")).fetchone())[0]
+
+        async def until(count: int) -> None:
+            async with asyncio.timeout(15):
+                while await stored() != count:
+                    await asyncio.sleep(0.05)
+
+        stop = asyncio.Event()
+        serving = asyncio.create_task(runtime._serve(settings, stop))
+        try:
+            await until(1)  # the 100 day old session went at start (default retention 90)
+            async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}") as ui:
+                for _ in range(100):
+                    try:
+                        if (await ui.get("/healthz")).status_code == 200:
+                            break
+                    except httpx.HTTPError:
+                        pass
+                    await asyncio.sleep(0.05)
+                r = await ui.put("/history/v1/settings", json={"retention_days": 30})
+                assert r.status_code == 200
+            await until(0)  # the lowered retention woke the sweeper
+        finally:
+            stop.set()
+            await serving

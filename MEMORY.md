@@ -2,6 +2,14 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-02 - retention settings and sweep (session-history A5)
+
+- The sweep runs inside the api process (`runtime._serve` starts `run_sweeper` next to the listeners and stops it before the pool closes), so the api stays the only writer of `sessions`, `records` and `settings`; there is no worker process.
+- `sweep_once` takes `pg_try_advisory_xact_lock(hashtext('agents-history-sweep'))` first: with several replicas only one sweeps, the others get None and wait for their next tick. The lock is transaction-scoped, so a crashed sweep never leaves it held. All batches of one sweep run in that one transaction; the lock and the delete roll back together.
+- Retention lives in the `settings` row so the UI edits it at runtime (`GET/PUT /history/v1/settings`, UI listener only). `set_retention` reads the previous value `FOR UPDATE`; only a lower value sets `app.state.sweep_wake` (a raise changes nothing already stored).
+- The wake event is created in `_serve` and passed as `create_app(settings, pool, sweep_wake=wake)` (ruling T-A5); `create_app` makes its own when none is passed. The sweeper clears `wake` before each sweep, so a PUT during a sweep still triggers the next one.
+- `test_read_routes_per_listener` listed the UI routes exactly; it now also lists `/settings` (get, put) because the UI app gained that route. The `app` and `db` fixtures moved from `test_read_api.py` to `conftest.py` (identical bodies) since `test_retention.py` uses them too.
+
 ## 2026-11-02 - search, read and delete (session-history A4)
 
 - `GET /sessions` answers a bare JSON list, not an envelope: the orchestrator relay filters lists by `preset_id` and needs one. Paging is by `before_id` (newest id first).

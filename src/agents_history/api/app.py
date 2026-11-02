@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
 
@@ -14,6 +15,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from agents_history.api import ingest, read
+from agents_history.api import settings as settings_api
 from agents_history.api.errors import ApiError, error_response
 from agents_history.settings import Settings
 
@@ -97,11 +99,16 @@ def _build_app(settings: Settings, pool: AsyncConnectionPool) -> FastAPI:
     return app
 
 
-def create_app(settings: Settings, pool: AsyncConnectionPool) -> FastAPI:
-    """The ui app: every route behind the source allowlist."""
+def create_app(
+    settings: Settings, pool: AsyncConnectionPool, *, sweep_wake: asyncio.Event | None = None
+) -> FastAPI:
+    """The ui app: every route behind the source allowlist. `sweep_wake` is the event the
+    retention sweeper waits on; lowering the retention sets it."""
     app = _build_app(settings, pool)
+    app.state.sweep_wake = sweep_wake or asyncio.Event()
     app.include_router(read.router, prefix=PREFIX)
     app.include_router(read.delete_router, prefix=PREFIX)
+    app.include_router(settings_api.router, prefix=PREFIX)
     app.add_middleware(SourceAllowlist, networks=settings.api_networks())
     return app
 

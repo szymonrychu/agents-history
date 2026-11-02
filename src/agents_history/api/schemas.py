@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class IngestOut(BaseModel):
@@ -60,3 +60,16 @@ class RecordsPage(BaseModel):
     records: list[RecordView]
     has_more_before: bool
     next_after_id: int | None
+
+
+class RetentionView(BaseModel):
+    retention_days: int
+    updated_at: datetime
+    last_sweep_at: datetime | None
+    last_sweep_deleted: int | None
+
+
+class RetentionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    retention_days: int = Field(ge=1, le=3650)

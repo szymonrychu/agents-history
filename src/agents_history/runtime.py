@@ -17,6 +17,7 @@ from starlette.types import ASGIApp
 from agents_history.api.app import create_app, create_ingest_app, create_service_app
 from agents_history.cli import EXIT_CONFIG
 from agents_history.settings import Settings
+from agents_history.sweep import run_sweeper
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
 
@@ -50,8 +51,12 @@ async def _serve(
     """Serve the ui listener plus the service and ingest listeners whose token lists are given."""
     tokens = tokens or {}
     pool = await open_pool(settings.database_url.get_secret_value(), min_size=1, max_size=10)
+    sweep_wake = asyncio.Event()
+    sweep_stop = asyncio.Event()
+    sweeper = asyncio.create_task(run_sweeper(pool, settings, sweep_stop, sweep_wake))
     try:
-        servers = [_Server(_api_config(settings, create_app(settings, pool), settings.http_port))]
+        ui = create_app(settings, pool, sweep_wake=sweep_wake)
+        servers = [_Server(_api_config(settings, ui, settings.http_port))]
         if "service" in tokens:
             service = create_service_app(settings, pool, tokens["service"])
             servers.append(_Server(_api_config(settings, service, settings.service_port)))
@@ -66,6 +71,9 @@ async def _serve(
         stopping.cancel()
         await asyncio.gather(*serving)
     finally:
+        sweep_stop.set()
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(sweeper, settings.shutdown_grace_seconds)
         await pool.close()
 
 

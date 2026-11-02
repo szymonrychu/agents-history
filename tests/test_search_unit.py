@@ -67,5 +67,6 @@ def test_read_routes_per_listener(settings):
     assert {p: m for p, m in ui.items() if p.startswith(PREFIX)} == {
         **read_routes,
         f"{PREFIX}/sessions/{{session_id}}": {"get", "delete"},
+        f"{PREFIX}/settings": {"get", "put"},
     }
     assert not any(p.startswith(f"{PREFIX}/sessions") for p in ingest)

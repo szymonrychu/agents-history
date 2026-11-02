@@ -23,18 +23,8 @@ SESSIONS = f"{PREFIX}/sessions"
 
 
 @pytest_asyncio.fixture
-async def app(ui_app):
-    return ui_app
-
-
-@pytest_asyncio.fixture
 async def client(ui_client):
     return ui_client
-
-
-@pytest_asyncio.fixture
-async def db(aconn):
-    return aconn
 
 
 def rec(kind: str, text: str = "", **body) -> Record:

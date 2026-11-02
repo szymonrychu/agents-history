@@ -88,6 +88,17 @@ async def ui_app(settings: Settings, pool: AsyncConnectionPool) -> FastAPI:
 
 
 @pytest_asyncio.fixture
+async def app(ui_app: FastAPI) -> FastAPI:
+    return ui_app
+
+
+@pytest_asyncio.fixture
+async def db(aconn: psycopg.AsyncConnection) -> psycopg.AsyncConnection:
+    """An autocommit connection to the migrated database."""
+    return aconn
+
+
+@pytest_asyncio.fixture
 async def service_app(settings: Settings, pool: AsyncConnectionPool) -> FastAPI:
     """The service app over the migrated database; the bearer token is `t`."""
     return create_service_app(settings, pool, [SERVICE_TOKEN])

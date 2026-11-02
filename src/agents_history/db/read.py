@@ -105,7 +105,7 @@ async def list_sessions(
 ) -> list[dict]:
     """Sessions newest id first. Every filter, the `q` match included, narrows the rows before
     the keyset page is cut, so a page is never emptied by a later filter. With `q` each row has
-    `hits` (matching records) and up to three `matches` `{record_id, kind, ts, window, start, end,
+    `hits` (matching records) and up to three `matches` `{record_id, kind, ts, win, start, end,
     cut_left, cut_right}`: `win` is up to three snippet widths of the record text around the
     first match, `start`/`end` the match span inside it (None when unknown), all computed by
     Postgres under the statement timeout. Without `q`, `hits` is None."""
