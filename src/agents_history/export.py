@@ -62,6 +62,7 @@ class SessionHead:
     created_by_session: uuid.UUID | None
     created_at: datetime
     raw: dict[str, Any]
+    size: int
 
 
 async def iter_lines(chunks: AsyncIterator[bytes], max_line_bytes: int) -> AsyncIterator[Line]:
@@ -223,4 +224,5 @@ def session_head(record: Record, header_id: uuid.UUID) -> SessionHead:
         created_by_session=_uuid(body.get("created_by_session")),
         created_at=created_at,
         raw=body,
+        size=record.size,
     )

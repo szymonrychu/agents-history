@@ -13,6 +13,7 @@ from psycopg_pool import AsyncConnectionPool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from agents_history.api import ingest
 from agents_history.api.errors import ApiError, error_response
 from agents_history.settings import Settings
 
@@ -115,5 +116,6 @@ def create_ingest_app(settings: Settings, pool: AsyncConnectionPool, tokens: lis
     """The ingest app (the orchestrator's discard delivery): behind the ingest bearer tokens, so
     that token can add sessions and nothing else."""
     app = _build_app(settings, pool)
+    app.include_router(ingest.router, prefix=PREFIX)
     app.add_middleware(ServiceTokenGate, tokens=tokens)
     return app

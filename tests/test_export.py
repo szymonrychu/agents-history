@@ -210,7 +210,9 @@ def test_non_object_and_bad_kind_refused(data):
 
 
 def test_session_head_ok():
-    head = session_head(parse_line(session_line()), SESSION_ID)
+    first = session_line()
+    head = session_head(parse_line(first), SESSION_ID)
+    assert head.size == first.size
     assert head.session_id == SESSION_ID
     assert head.slug == "brisk-otter"
     assert head.preset_id == uuid.UUID("22222222-2222-4222-8222-222222222222")

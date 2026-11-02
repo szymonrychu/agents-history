@@ -2,6 +2,16 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-02 - ingest (session-history A3)
+
+- A re-delivery replaces: one transaction deletes the stored session (records cascade), inserts the session row, COPYs the records and sets the counts. An ExportError mid-stream or a dropped connection rolls it all back, so the previous copy stays intact and nothing half-stored is ever visible.
+- `discarded_at` is the server receive time (the column default), not a field of the export: the orchestrator sends the export at discard, and the retention sweep counts from when this service got it.
+- Records are written with psycopg `COPY ... FROM STDIN`, not row INSERTs: an export can hold tens of thousands of event lines and COPY streams them in one round trip per buffer.
+- There is no total body cap: the body is streamed line by line (at most `HISTORY_INGEST_MAX_LINE_BYTES` of one line in memory) and an over line is stored truncated, so a cap would only refuse a long session, and a refused export blocks the discard forever.
+- Postgres jsonb refuses NUL, lone surrogates and NaN/Infinity, which `json.loads` accepts. `db.sessions.jsonb_safe` copies every body (records and the session record) with strings and keys through `export.clean_str` (NUL removed, lone surrogate to U+FFFD) and non-finite numbers as null; the A2 parser keeps the body as parsed.
+- `SessionHead.size` carries the session line size so `sessions.bytes` counts every line, while `replace_session` keeps the `(conn, head, records)` signature later tasks seed with.
+- Two concurrent deliveries of one session: the second waits on the unique index and gets a 500 if the first commits; the orchestrator's retry then replaces. No advisory lock, to keep the transaction simple.
+
 ## 2026-11-02 - export line parser (session-history A2)
 
 - Oversize lines (above `HISTORY_INGEST_MAX_LINE_BYTES`) are stored truncated instead of refusing the export: a refused export would block the orchestrator's discard forever. `iter_lines` therefore buffers at most `max_line_bytes` of one line and keeps only the first 1 MiB of an over line; `parse_line` builds its body from `kind` and `id` found by regex in that prefix.
