@@ -49,7 +49,7 @@ Errors: 422 `invalid_request`, `query_too_short`, `invalid_regex` (the pattern d
 
 ### `GET /history/v1/sessions/{session_id}`
 
-One stored session by its session uuid: the list fields plus `session` (the stored session record) and `agents` (`id`, `ordinal`, `pod_name` of each stored agent record). Errors: 404 `not_found`, 422 `invalid_request`.
+One stored session by its session uuid: the list fields plus `session` (the stored session record) and `agents` (`id` as a uuid string, `ordinal`, `pod_name` of each stored agent record). Errors: 404 `not_found`, 422 `invalid_request`.
 
 ### `GET /history/v1/sessions/{session_id}/records`
 

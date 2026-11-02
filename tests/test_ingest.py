@@ -38,19 +38,23 @@ def session_record(session_id: uuid.UUID) -> dict:
     }
 
 
+AGENT_ID = "6f1c2a5e-3b7d-4c8e-9a10-2d4f6b8c0e11"
+
+
 def kind_record(kind: str, session_id: uuid.UUID, n: int, data: dict | None = None) -> dict:
     sid = str(session_id)
     return {
         "agent": {
             "kind": "agent",
-            "id": n,
+            "id": AGENT_ID,
             "session_id": sid,
-            "name": "lead",
+            "ordinal": 0,
+            "pod_name": "pod-lead",
             "created_at": CREATED,
         },
         "message": {"kind": "message", "id": n, "session_id": sid, "body": "hello"},
-        "turn": {"kind": "turn", "turn_id": f"t{n}", "agent_id": 1, "started_at": CREATED},
-        "command": {"kind": "command", "id": n, "agent_id": 1, "command_kind": "compact"},
+        "turn": {"kind": "turn", "turn_id": f"t{n}", "agent_id": AGENT_ID, "started_at": CREATED},
+        "command": {"kind": "command", "id": n, "agent_id": AGENT_ID, "command_kind": "compact"},
         "check": {"kind": "check", "id": n, "session_id": sid, "ok": True},
         "event": {"kind": "event", "id": n, "session_id": sid, "type": "tool_result", "data": data},
     }[kind]

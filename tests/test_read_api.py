@@ -275,22 +275,54 @@ async def test_filters_apply_with_q(client, db):
     assert [s["session_id"] for s in await listed(client, q="needle", preset="keep")] == [str(keep)]
 
 
+AGENT_A = "6f1c2a5e-3b7d-4c8e-9a10-2d4f6b8c0e11"
+AGENT_B = "0d9e8c7b-6a5f-4e3d-8c2b-1a0f9e8d7c6b"
+
+
+def export_agent(agent_id: str, ordinal: int, pod_name: str, session_id: uuid.UUID) -> Record:
+    """An `agent` record shaped like a row of the orchestrator's `agents` table: a uuid id."""
+    return rec(
+        "agent",
+        id=agent_id,
+        cluster_id=str(uuid.uuid4()),
+        last_dispatched_at=None,
+        ordinal=ordinal,
+        pod_name=pod_name,
+        url=f"http://{pod_name}:8000",
+        pod_phase="Running",
+        ready=True,
+        session_id=str(session_id),
+        session_created_at="2026-10-01T10:00:00+00:00",
+        gone_at=None,
+        pod_ip="10.1.2.3",
+        wrapper_resumed_at=None,
+    )
+
+
 async def test_detail_with_agents(client, db):
-    sid = await seed(
+    sid = uuid.uuid4()
+    await seed(
         db,
         [
-            rec("agent", id=7, ordinal=0, pod_name="pod-a"),
-            rec("agent", id="x", ordinal=1),
+            export_agent(AGENT_A, 0, "pod-a", sid),
+            export_agent(AGENT_B, 1, "pod-b", sid),
+            rec("agent", id="x", ordinal="one"),
+            rec("agent", id=7, ordinal=2),
+            rec("agent", ordinal=3),
             rec("message", "hi"),
         ],
         slug="alpha",
+        session_id=sid,
     )
     r = await client.get(f"{SESSIONS}/{sid}")
     assert r.status_code == 200
     body = r.json()
     assert body["session"]["slug"] == "alpha"
-    assert body["agents"] == [{"id": 7, "ordinal": 0, "pod_name": "pod-a"}]
-    assert body["record_counts"] == {"agent": 2, "message": 1}
+    assert body["agents"] == [
+        {"id": AGENT_A, "ordinal": 0, "pod_name": "pod-a"},
+        {"id": AGENT_B, "ordinal": 1, "pod_name": "pod-b"},
+    ]
+    assert body["record_counts"] == {"agent": 5, "message": 1}
     assert body["session_id"] == str(sid) and body["hits"] is None and body["matches"] == []
 
 
