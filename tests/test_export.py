@@ -1,3 +1,4 @@
+import json
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -28,8 +29,6 @@ def line(data: bytes, number: int = 1) -> Line:
 
 
 def session_line(**overrides) -> Line:
-    import json
-
     body = {
         "kind": "session",
         "id": str(SESSION_ID),
@@ -56,6 +55,19 @@ def test_text_collects_string_leaves_without_keys():
 
 def test_text_removes_nul():
     assert record_text({"x": "a\x00b"}) == "ab"
+
+
+def test_text_replaces_lone_surrogates():
+    body = json.loads('{"x": "a\\ud800b", "y": "\\udc00", "ok": "\\ud83d\\ude00"}')
+    text = record_text(body)
+    assert text == "a\ufffdb\n\ufffd\n\U0001f600"
+    text.encode("utf-8")
+
+
+def test_parsed_line_text_with_lone_surrogate_encodes():
+    record = parse_line(line(b'{"kind":"event","data":"x\\ud800y\\u0000z"}'))
+    assert record.text == "event\nx\ufffdyz"
+    record.text.encode("utf-8")
 
 
 def test_text_without_strings_is_empty():
@@ -140,12 +152,23 @@ def test_over_line_without_kind_is_unknown_and_text_replaces_bad_bytes():
     record = parse_line(Line(b"\xff\x00garbage", 99, True, 1))
     assert record.kind == "unknown"
     assert record.body == {"kind": "unknown", "id": None, "truncated": True, "bytes": 99}
-    assert record.text == "�garbage"
+    assert record.text == "\ufffdgarbage"
 
 
 def test_over_line_string_id_is_kept_as_string():
     record = parse_line(Line(b'{"id": "abc", "kind": "turn", "x', 70_000_000, True, 2))
     assert record.body == {"kind": "turn", "id": "abc", "truncated": True, "bytes": 70_000_000}
+
+
+def test_over_line_huge_numeric_id_is_none():
+    record = parse_line(Line(b'{"kind":"event","id":' + b"9" * 5000 + b',"x', 80_000_000, True, 4))
+    assert record.body == {"kind": "event", "id": None, "truncated": True, "bytes": 80_000_000}
+
+
+@pytest.mark.parametrize("ident", [b'"a\tb"', b'"\xff"'])
+def test_over_line_undecodable_string_id_is_none(ident):
+    record = parse_line(Line(b'{"kind":"turn","id":' + ident + b',"x', 70_000_000, True, 2))
+    assert record.body == {"kind": "turn", "id": None, "truncated": True, "bytes": 70_000_000}
 
 
 def test_parse_line_ok():

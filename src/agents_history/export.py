@@ -18,6 +18,7 @@ _KIND = re.compile(r"^[a-z_]{1,32}$")
 _PREFIX_KIND = re.compile(rb'"kind"\s*:\s*"([a-z_]{1,32})"')
 _PREFIX_ID = re.compile(rb'"id"\s*:\s*(-?\d+|"[^"\\]*")')
 _TS_KEYS = ("ts", "created_at", "started_at")
+_SURROGATE = re.compile("[\\ud800-\\udfff]")
 
 
 class ExportError(Exception):
@@ -107,14 +108,21 @@ async def iter_lines(chunks: AsyncIterator[bytes], max_line_bytes: int) -> Async
         yield done
 
 
+def clean_str(value: str) -> str:
+    """`value` without NUL and with every lone surrogate (a JSON "\\ud800" escape) replaced by
+    U+FFFD: Postgres text and jsonb can hold neither."""
+    return _SURROGATE.sub("\ufffd", value.replace("\x00", ""))
+
+
 def record_text(body: Any) -> str:
-    """Every string leaf (keys excluded) in document order, joined by newlines, NUL removed."""
+    """Every string leaf (keys excluded) in document order, joined by newlines, each through
+    `clean_str`."""
     leaves: list[str] = []
     pending = [body]
     while pending:
         node = pending.pop()
         if isinstance(node, str):
-            leaves.append(node.replace("\x00", ""))
+            leaves.append(clean_str(node))
         elif isinstance(node, dict):
             pending.extend(reversed(list(node.values())))
         elif isinstance(node, list):
@@ -140,13 +148,27 @@ def record_ts(body: dict[str, Any]) -> datetime | None:
     return None
 
 
+def _prefix_id(data: bytes) -> int | str | None:
+    """The first `"id": <int or string>` in the prefix, best-effort: a nested id that comes
+    first wins, and one that does not decode (over 4300 digits, a control character, invalid
+    UTF-8) is None, so the truncated record is still stored."""
+    ident = _PREFIX_ID.search(data)
+    if ident is None:
+        return None
+    try:
+        return json.loads(ident.group(1))
+    except ValueError:
+        return None
+
+
 def _over_record(line: Line) -> Record:
+    """The truncated record of an over line; its text is the prefix decoded with bad bytes
+    replaced and NUL removed."""
     kind = _PREFIX_KIND.search(line.data)
-    ident = _PREFIX_ID.search(line.data)
     k = kind.group(1).decode() if kind else "unknown"
-    i = json.loads(ident.group(1)) if ident else None
+    i = _prefix_id(line.data)
     body = {"kind": k, "id": i, "truncated": True, "bytes": line.size}
-    text = line.data.decode("utf-8", errors="replace").replace("\x00", "")
+    text = clean_str(line.data.decode("utf-8", errors="replace"))
     return Record(k, None, body, text, True, line.size)
 
 
