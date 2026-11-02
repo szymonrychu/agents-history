@@ -38,7 +38,7 @@ class SessionSummary(BaseModel):
 
 
 class AgentView(BaseModel):
-    id: int
+    id: str
     ordinal: int
     pod_name: str | None
 

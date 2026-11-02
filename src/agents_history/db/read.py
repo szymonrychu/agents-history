@@ -209,7 +209,7 @@ async def get_session(conn: psycopg.AsyncConnection, session_id: uuid.UUID) -> d
 
 async def agents_of(conn: psycopg.AsyncConnection, session_pk: int) -> list[dict]:
     """`{id, ordinal, pod_name}` of each stored `agent` record, in record order; an agent whose
-    id or ordinal is not an integer is left out."""
+    id is not a string (the orchestrator's uuid) or whose ordinal is not an integer is left out."""
     async with conn.cursor() as cur:
         await cur.execute(
             "SELECT body -> 'id', body -> 'ordinal', body ->> 'pod_name' FROM records"
@@ -220,7 +220,7 @@ async def agents_of(conn: psycopg.AsyncConnection, session_pk: int) -> list[dict
     return [
         {"id": agent_id, "ordinal": ordinal, "pod_name": pod_name}
         for agent_id, ordinal, pod_name in rows
-        if all(type(v) is int for v in (agent_id, ordinal))
+        if type(agent_id) is str and type(ordinal) is int
     ]
 
 
