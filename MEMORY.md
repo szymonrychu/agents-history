@@ -2,6 +2,16 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-02 - search, read and delete (session-history A4)
+
+- `GET /sessions` answers a bare JSON list, not an envelope: the orchestrator relay filters lists by `preset_id` and needs one. Paging is by `before_id` (newest id first).
+- Every filter, `q` included, narrows the sessions before the keyset page is cut (one statement: filtered sessions, per-session hit counts, then `LATERAL ... ORDER BY id LIMIT 3` for the matches). A page is therefore never emptied by a filter applied afterwards (ruling S-R1); the relay must pass `preset` and `session` through as query params.
+- `HISTORY_SEARCH_TIMEOUT_SECONDS` (8 s) is applied with `set_config('statement_timeout', ..., true)` (SET LOCAL) inside the query's transaction, below the relay's 10 s; a cancel is 422 `search_timeout`. A regex is compiled up front (`'' ~* q`) so a broken pattern is `invalid_regex` even when no row would evaluate it.
+- `q` must be 3 to 500 characters (one error code, `query_too_short`; an empty `q` counts as absent): under 3 characters the trigram index cannot be used and every record would be scanned.
+- Snippets: SQL returns a window of three snippet widths around the first match (`strpos(lower(..))` for substring, `regexp_instr` for regex, PG 15+; production is PG 16) so a 1 MiB record text never crosses the wire; Python cuts the 160 characters. Python `re` runs only on that window and falls back to the first 160 characters when it cannot compile the Postgres pattern. A pathological regex can still be slow in Python's backtracking engine on that window.
+- `agents` of the detail come from the `agent` records (`id`, `ordinal`, `pod_name` in the body); an agent record without integer id and ordinal is left out.
+- Delete is mounted on the UI listener only (`read.delete_router`); the service listener answers 405 to DELETE on the same path. User decision Q6 (mx-99 #691): the superleader gets read and search only. `delete_session` is a write, so it lives in `db/sessions.py`; `db/read.py` stays read-only.
+
 ## 2026-11-02 - ingest (session-history A3)
 
 - A re-delivery replaces: one transaction deletes the stored session (records cascade), inserts the session row, COPYs the records and sets the counts. An ExportError mid-stream or a dropped connection rolls it all back, so the previous copy stays intact and nothing half-stored is ever visible.

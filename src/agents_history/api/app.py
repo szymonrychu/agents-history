@@ -13,7 +13,7 @@ from psycopg_pool import AsyncConnectionPool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from agents_history.api import ingest
+from agents_history.api import ingest, read
 from agents_history.api.errors import ApiError, error_response
 from agents_history.settings import Settings
 
@@ -100,14 +100,17 @@ def _build_app(settings: Settings, pool: AsyncConnectionPool) -> FastAPI:
 def create_app(settings: Settings, pool: AsyncConnectionPool) -> FastAPI:
     """The ui app: every route behind the source allowlist."""
     app = _build_app(settings, pool)
+    app.include_router(read.router, prefix=PREFIX)
+    app.include_router(read.delete_router, prefix=PREFIX)
     app.add_middleware(SourceAllowlist, networks=settings.api_networks())
     return app
 
 
 def create_service_app(settings: Settings, pool: AsyncConnectionPool, tokens: list[str]) -> FastAPI:
     """The service app (the orchestrator admin relay): bearer service tokens instead of the
-    allowlist."""
+    allowlist. Read and search only: no delete route is mounted."""
     app = _build_app(settings, pool)
+    app.include_router(read.router, prefix=PREFIX)
     app.add_middleware(ServiceTokenGate, tokens=tokens)
     return app
 

@@ -111,3 +111,9 @@ async def replace_session(
             (Jsonb(dict(counts)), size, session_pk),
         )
     return IngestResult(head.session_id, counts.total(), truncated, deleted.rowcount > 0)
+
+
+async def delete_session(conn: psycopg.AsyncConnection, session_id: uuid.UUID) -> bool:
+    """Delete one stored session (its records cascade); False when it is not stored."""
+    cur = await conn.execute("DELETE FROM sessions WHERE session_id = %s", (session_id,))
+    return cur.rowcount > 0
