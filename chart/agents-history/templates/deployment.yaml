@@ -1,0 +1,135 @@
+{{- $tag := default .Chart.AppVersion .Values.image.tag }}
+{{- $image := printf "%s:%s" .Values.image.repository $tag }}
+{{- $settingsSum := include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+{{- $cfg := .Values.components.api }}
+{{- $labels := dict "context" $ "component" "api" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agents-history.fullname" . }}-api
+  labels:
+    {{- include "agents-history.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ $cfg.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "agents-history.componentLabels" $labels | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/settings: {{ $settingsSum }}
+        {{- with $cfg.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "agents-history.labels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "agents-history.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "agents-history.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: migrate
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["history"]
+          args: ["migrate"]
+          {{- include "agents-history.env" . | nindent 10 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: api
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["history"]
+          args: ["api"]
+          {{- include "agents-history.env" . | nindent 10 }}
+          {{- include "agents-history.apiEnv" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ $cfg.port }}
+              protocol: TCP
+            {{- if .Values.serviceListener.enabled }}
+            - name: service
+              containerPort: {{ .Values.serviceListener.port }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.ingestListener.enabled }}
+            - name: ingest
+              containerPort: {{ .Values.ingestListener.port }}
+              protocol: TCP
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ $cfg.port }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {{ $cfg.port }}
+          {{- with $cfg.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.serviceListener.enabled }}
+            - name: service-tokens
+              mountPath: {{ include "agents-history.serviceTokensDir" . }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.ingestListener.enabled }}
+            - name: ingest-tokens
+              mountPath: {{ include "agents-history.ingestTokensDir" . }}
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.serviceListener.enabled }}
+        - name: service-tokens
+          secret:
+            secretName: {{ include "agents-history.serviceTokensSecret" . }}
+            items:
+              - key: {{ .Values.serviceListener.tokensSecret.key | default "tokens" }}
+                path: tokens
+        {{- end }}
+        {{- if .Values.ingestListener.enabled }}
+        - name: ingest-tokens
+          secret:
+            secretName: {{ include "agents-history.ingestTokensSecret" . }}
+            items:
+              - key: {{ .Values.ingestListener.tokensSecret.key | default "token" }}
+                path: tokens
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -2,6 +2,13 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-02 - helm chart (session-history A7)
+
+- The chart is copied from agents-usage with the prober, watcher, claude and orchestrator pieces removed: one api Deployment with a `migrate` init container. The chart passes `helm lint` and the render tests (`mise run test:chart`), the first green since A1 (ruling P-16).
+- The Service is named `<fullname>` (not `<fullname>-api`) so agents-helmfile and the orchestrator reach it as `http://agents-history:8001` (service) and `:8002` (ingest) with release name `agents-history`.
+- The api memory limit is 512Mi (agents-usage: 256Mi): ingest streams line by line, but search results (three snippet windows per session, up to 200 sessions a page) are built in memory.
+- Both token Secrets are created by agents-helmfile and referenced by name; the chart never renders either token. The init container mounts no token volume and sees no `*_TOKENS_FILE` env.
+
 ## 2026-11-02 - retention settings and sweep (session-history A5)
 
 - The sweep runs inside the api process (`runtime._serve` starts `run_sweeper` next to the listeners and stops it before the pool closes), so the api stays the only writer of `sessions`, `records` and `settings`; there is no worker process.
