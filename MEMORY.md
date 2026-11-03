@@ -28,6 +28,14 @@ Lessons that outlive a session. Newest first.
 - `agents` of the detail come from the `agent` records (`id`, `ordinal`, `pod_name` in the body); `id` is the orchestrator's uuid as a string; an agent record without a string id and an integer ordinal is left out (2026-11-02: the first release kept integer ids only, so every real session showed no agents).
 - Delete is mounted on the UI listener only (`read.delete_router`); the service listener answers 405 to DELETE on the same path. User decision Q6 (mx-99 #691): the superleader gets read and search only. `delete_session` is a write, so it lives in `db/sessions.py`; `db/read.py` stays read-only.
 
+## 2026-11-03 - idempotent ingest (T-26)
+
+- Live, one 86k-record session was ingested 4 times: the orchestrator hook gave up at its deadline while the server (120-135 s per ingest) still committed, then retried with a full export, and each repeat deleted and re-inserted everything (WAL bloat). Research: `.scratchpad/t26-stuck-discard/reingest-research.md`.
+- "Same export" = same sha256 of the raw request body, stored in `sessions.content_sha256` (migration 0002; NULL for older rows, so one more replace for those). The export has no id, count or hash of its own, and the orchestrator cannot add one without a two-pass export, so the server hashes while it spools the body (memory up to 8 MiB, then a temp file). Count plus last record id was rejected: a changed record in the middle would go unnoticed. Cost: a retry with a changed body (for example a changed field) replaces, which is the safe side.
+- Identical body: 200, nothing written (no delete, no insert, `xmin` and `discarded_at` unchanged). Different body, more records included: replaces as before (201).
+- Concurrency: `pg_advisory_xact_lock` became `pg_try_advisory_xact_lock`; a second ingest of a session that is writing gets 409 `ingest_in_progress` instead of queueing a second full rewrite behind the first. Supersedes the 2026-11-02 "second waits, then replaces" note. The lock covers the database phase, not the upload.
+- The orchestrator hook treats any non-2xx as a failed attempt (backoff, retry with a fresh export), so a 409 is retried later and the retry gets the cheap 200.
+
 ## 2026-11-02 - openapi documents and readme (session-history A6)
 
 - Two committed documents, one per listener that has a spec: `openapi.json` (UI: read, delete, settings) and `openapi-service.json` (service: exactly the three GET routes, no delete anywhere, Q6). The ingest route is documented in the README only: nothing vendors it, and its raw streaming body has no FastAPI schema.

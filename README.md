@@ -111,15 +111,15 @@ The body is NDJSON (one JSON object per line, empty lines skipped), streamed: at
 
 Truncation: a line longer than `HISTORY_INGEST_MAX_LINE_BYTES` is stored truncated instead of refusing the export (a refused export would block the discard forever). Only its first 1048576 bytes are kept as the record text, the body becomes `{"kind", "id", "truncated": true, "bytes": <full line size>}` (kind and id are read from the kept prefix, `unknown` and `null` when absent) and the record has `truncated: true`.
 
-Re-delivering a session replaces the stored copy in one transaction; a failed delivery leaves the previous copy intact. NUL characters and lone surrogates in strings are cleaned before storage. The body and the token are never logged.
+Re-delivering a session is idempotent. The service stores the sha256 of the raw body next to the session. A delivery whose body has the same digest as the stored copy writes nothing and answers `200` (same shape as `201`, `replaced` false). A different body replaces the stored copy in one transaction; a failed delivery leaves the previous copy intact. While one ingest of a session writes, another for the same session answers `409` `ingest_in_progress` at once (the client retries later and gets the `200`). The body is spooled (memory up to 8 MiB, then a temporary file) and hashed before the database is touched. NUL characters and lone surrogates in strings are cleaned before storage. The body and the token are never logged.
 
-Answers `201`:
+Answers `201` (stored or replaced) or `200` (identical body already stored):
 
     {"session_id": "<uuid>", "records": 42, "truncated": 0, "replaced": false}
 
 `records` is the number of records stored (the session record excluded), `truncated` how many were truncated, `replaced` whether an earlier copy was replaced.
 
-Errors: 401 `unauthorized`; 422 with `invalid_request` (bad `X-Orch-Session-Id`), `empty_export` (no lines), `bad_line` (a line is not a JSON object with a valid `kind`) or `bad_export` (the first record is not this request's session, or it lacks a slug or a valid `created_at`).
+Errors: 401 `unauthorized`; 409 `ingest_in_progress`; 422 with `invalid_request` (bad `X-Orch-Session-Id`), `empty_export` (no lines), `bad_line` (a line is not a JSON object with a valid `kind`) or `bad_export` (the first record is not this request's session, or it lacks a slug or a valid `created_at`).
 
 ## Configuration
 

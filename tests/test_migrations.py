@@ -31,7 +31,7 @@ def count(conn, table: str) -> int:
 
 def test_migrate_applies_once(empty_db_url, settings_for):
     settings = settings_for(empty_db_url)
-    assert migrate(settings) == ["0001_init.sql"]
+    assert migrate(settings) == ["0001_init.sql", "0002_content_hash.sql"]
     assert migrate(settings) == []
 
 

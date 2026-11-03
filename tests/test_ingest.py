@@ -1,6 +1,5 @@
 """POST /history/v1/ingest over a migrated database (Postgres: CI, or a local server)."""
 
-import asyncio
 import json
 import logging
 import uuid
@@ -152,9 +151,9 @@ async def test_stores_every_record_in_order(app, aconn):
 
 
 async def test_redelivery_replaces(app, aconn):
-    lines = export_lines(SID)
+    lines = export_lines(SID, event_data={"output": "changed"})
     first = await post(app, export(SID), sid=SID)
-    second = await post(app, export(SID), sid=SID)
+    second = await post(app, export(SID, event_data={"output": "changed"}), sid=SID)
     assert first.json()["replaced"] is False
     assert second.status_code == 201
     assert second.json()["replaced"] is True
@@ -163,16 +162,64 @@ async def test_redelivery_replaces(app, aconn):
     assert await rows(aconn, "SELECT count(*) FROM sessions") == [(1,)]
 
 
-async def test_concurrent_deliveries_of_one_session_both_succeed(app, aconn):
-    """Two overlapping deliveries of a new session serialise on the session id: both answer 201
-    (the later one replaces) and one copy is stored, instead of a UniqueViolation 500."""
-    body = export(SID, events=2000)
-    kinds = stored_kinds(export_lines(SID, events=2000))
-    first, second = await asyncio.gather(post(app, body, sid=SID), post(app, body, sid=SID))
-    assert [r.status_code for r in (first, second)] == [201, 201]
-    assert sorted(r.json()["replaced"] for r in (first, second)) == [False, True]
+async def lock_session(db, sid: uuid.UUID) -> None:
+    """Hold the session's ingest advisory lock in an open transaction on `db`."""
+    await db.execute("BEGIN")
+    await db.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (str(sid),))
+
+
+async def test_concurrent_ingest_of_one_session_gets_409(app, aconn, db_url):
+    """While another ingest of the session holds its lock, a delivery is refused at once with
+    409 ingest_in_progress and writes nothing; after the lock is gone it is stored."""
+    import psycopg
+
+    async with await psycopg.AsyncConnection.connect(db_url, autocommit=True) as holder:
+        await lock_session(holder, SID)
+        r = await post(app, export(SID), sid=SID)
+        assert r.status_code == 409
+        assert r.json()["error"]["code"] == "ingest_in_progress"
+        assert await rows(aconn, "SELECT count(*) FROM sessions") == [(0,)]
+        await holder.execute("ROLLBACK")
+    assert (await post(app, export(SID), sid=SID)).status_code == 201
+
+
+async def test_identical_second_ingest_writes_nothing(app, aconn):
+    body = export(SID, events=50)
+    kinds = stored_kinds(export_lines(SID, events=50))
+    first = await post(app, body, sid=SID)
+    assert first.status_code == 201
+    state = "SELECT id, xmin::text, discarded_at FROM sessions WHERE session_id = %s"
+    before = await rows(aconn, state, SID)
+    rec_xmin = "SELECT count(*), min(id), max(id), min(xmin::text), max(xmin::text) FROM records"
+    records_before = await rows(aconn, rec_xmin)
+    second = await post(app, body, sid=SID)
+    assert second.status_code == 200
+    assert second.json() == {
+        "session_id": str(SID),
+        "records": len(kinds),
+        "truncated": 0,
+        "replaced": False,
+    }
+    assert await rows(aconn, state, SID) == before
+    assert await rows(aconn, rec_xmin) == records_before
     assert await rows(aconn, "SELECT count(*) FROM sessions") == [(1,)]
+    assert records_before[0][0] == len(kinds)
+
+
+async def test_grown_export_replaces(app, aconn):
+    assert (await post(app, export(SID, events=3), sid=SID)).status_code == 201
+    [(pk,)] = await rows(aconn, "SELECT id FROM sessions WHERE session_id = %s", SID)
+    grown = export(SID, events=10)
+    kinds = stored_kinds(export_lines(SID, events=10))
+    r = await post(app, grown, sid=SID)
+    assert r.status_code == 201
+    assert r.json()["replaced"] is True
+    assert r.json()["records"] == len(kinds)
+    [(new_pk,)] = await rows(aconn, "SELECT id FROM sessions WHERE session_id = %s", SID)
+    assert new_pk != pk
     assert await rows(aconn, "SELECT count(*) FROM records") == [(len(kinds),)]
+    # The grown body is now the stored one: sending it again is a no-op.
+    assert (await post(app, grown, sid=SID)).status_code == 200
 
 
 async def test_bad_line_rolls_back_and_keeps_previous(app, aconn):
