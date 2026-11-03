@@ -23,6 +23,11 @@ class IngestResult:
     records: int
     truncated: int
     replaced: bool
+    unchanged: bool = False
+
+
+class IngestInProgress(Exception):
+    """Another ingest of the same session holds its lock: do not start a second rewrite."""
 
 
 def jsonb_safe(value: Any) -> Any:
@@ -54,29 +59,50 @@ def _optional(value: str | None) -> str | None:
 
 
 async def replace_session(
-    conn: psycopg.AsyncConnection, head: SessionHead, records: AsyncIterator[Record]
+    conn: psycopg.AsyncConnection,
+    head: SessionHead,
+    records: AsyncIterator[Record],
+    content_sha256: str | None = None,
 ) -> IngestResult:
     """Store one export in one transaction: drop any stored copy of the session, insert the
     session row, COPY every record, then set the per-kind counts and the byte total (every
     line, the session line included). Any exception, an ExportError from `records` included,
-    rolls the whole transaction back, so a previous copy stays intact. Concurrent calls for one
-    session take a transaction-scoped advisory lock keyed on its id and run one after the other."""
+    rolls the whole transaction back, so a previous copy stays intact.
+
+    Idempotent: the call takes a transaction-scoped advisory lock keyed on the session id without
+    waiting and raises IngestInProgress when another ingest of the session holds it. When the
+    stored copy has the same `content_sha256` (not None) nothing is written and the result has
+    `unchanged` True, `replaced` False; `records` is not consumed."""
     counts: Counter[str] = Counter()
     truncated = 0
     size = head.size
     async with conn.transaction():
-        # Serialise deliveries of one session: the second waits here, then replaces the first
-        # copy, instead of failing on the unique index.
-        await conn.execute(
-            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (str(head.session_id),)
+        cur = await conn.execute(
+            "SELECT pg_try_advisory_xact_lock(hashtextextended(%s, 0))", (str(head.session_id),)
         )
+        locked = await cur.fetchone()
+        if not (locked and locked[0]):
+            raise IngestInProgress(str(head.session_id))
+        if content_sha256 is not None:
+            cur = await conn.execute(
+                "SELECT s.record_counts, s.content_sha256 = %s,"
+                " (SELECT count(*) FROM records r WHERE r.session_pk = s.id AND r.truncated)"
+                " FROM sessions s WHERE s.session_id = %s",
+                (content_sha256, head.session_id),
+            )
+            stored = await cur.fetchone()
+            if stored and stored[1]:
+                return IngestResult(
+                    head.session_id, sum(stored[0].values()), stored[2], False, True
+                )
         deleted = await conn.execute(
             "DELETE FROM sessions WHERE session_id = %s", (head.session_id,)
         )
         cur = await conn.execute(
             "INSERT INTO sessions (session_id, slug, preset_id, preset_name, created_by_service,"
-            " created_by_session, created_at, session)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            " created_by_session, created_at, session,"
+            " content_sha256)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
             (
                 head.session_id,
                 clean_str(head.slug),
@@ -86,6 +112,7 @@ async def replace_session(
                 head.created_by_session,
                 head.created_at,
                 Jsonb(jsonb_safe(head.raw)),
+                content_sha256,
             ),
         )
         row = await cur.fetchone()
