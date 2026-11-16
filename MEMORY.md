@@ -36,6 +36,10 @@ Lessons that outlive a session. Newest first.
 - Concurrency: `pg_advisory_xact_lock` became `pg_try_advisory_xact_lock`; a second ingest of a session that is writing gets 409 `ingest_in_progress` instead of queueing a second full rewrite behind the first. Supersedes the 2026-11-02 "second waits, then replaces" note. The lock covers the database phase, not the upload.
 - The orchestrator hook treats any non-2xx as a failed attempt (backoff, retry with a fresh export), so a 409 is retried later and the retry gets the cheap 200.
 
+## 2026-11-16 - handoff records and preset-id search pinned (S-68 step 6)
+
+- No code change: ingest accepts any record kind matching `^[a-z_]{1,32}$`, so the orchestrator's `handoff` records (exported at discard, decision 771) are stored as-is and searched through the records route with `kind=handoff`. The list filter `preset` already matches the preset name OR id, so a renamed preset is still found by its id. Two tests in `test_read_api.py` pin both; the README lists the `handoff` kind. No release needed.
+
 ## 2026-11-02 - openapi documents and readme (session-history A6)
 
 - Two committed documents, one per listener that has a spec: `openapi.json` (UI: read, delete, settings) and `openapi-service.json` (service: exactly the three GET routes, no delete anywhere, Q6). The ingest route is documented in the README only: nothing vendors it, and its raw streaming body has no FastAPI schema.

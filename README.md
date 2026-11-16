@@ -57,7 +57,7 @@ A page of the session's records in ascending `id` order. Query parameters:
 
 | Parameter | Meaning |
 |-----------|---------|
-| `kind` | comma separated record kinds (`agent`, `message`, `turn`, `command`, `check`, `event`) |
+| `kind` | comma separated record kinds (`agent`, `message`, `turn`, `command`, `check`, `event`, `handoff`) |
 | `q`, `regex` | the same search as the list, applied to the records |
 | `limit` | 1 to 1000, default 200 |
 | `before_id` | the `limit` records before this record id (scroll back) |
@@ -107,7 +107,7 @@ Headers:
 | `X-Orch-Session-Id` | the session uuid; 422 `invalid_request` when missing or not a uuid |
 | `Content-Type: application/x-ndjson` | informational; the body is read as lines whatever it says |
 
-The body is NDJSON (one JSON object per line, empty lines skipped), streamed: at most `HISTORY_INGEST_MAX_LINE_BYTES` of one line is ever held in memory, and there is no cap on the whole body. The first line is the session record (`kind` `session`, with `id` equal to `X-Orch-Session-Id`, a `slug` and a timezone-aware `created_at`; `preset_id`, `preset_name`, `created_by_service` and `created_by_session` are optional and become `null` when missing or malformed). Every later line is a record with a `kind` (lowercase letters and `_`, at most 32); the orchestrator writes `agent`, `message`, `turn`, `command`, `check` and `event`. A record's time is the first of `ts`, `created_at`, `started_at` that is an ISO 8601 time with a zone.
+The body is NDJSON (one JSON object per line, empty lines skipped), streamed: at most `HISTORY_INGEST_MAX_LINE_BYTES` of one line is ever held in memory, and there is no cap on the whole body. The first line is the session record (`kind` `session`, with `id` equal to `X-Orch-Session-Id`, a `slug` and a timezone-aware `created_at`; `preset_id`, `preset_name`, `created_by_service` and `created_by_session` are optional and become `null` when missing or malformed). Every later line is a record with a `kind` (lowercase letters and `_`, at most 32); the orchestrator writes `agent`, `message`, `turn`, `command`, `check`, `event` and `handoff` (fields `id`, `agent_id`, `kind`, `handoff_text`, `created_at`). A record's time is the first of `ts`, `created_at`, `started_at` that is an ISO 8601 time with a zone.
 
 Truncation: a line longer than `HISTORY_INGEST_MAX_LINE_BYTES` is stored truncated instead of refusing the export (a refused export would block the discard forever). Only its first 1048576 bytes are kept as the record text, the body becomes `{"kind", "id", "truncated": true, "bytes": <full line size>}` (kind and id are read from the kept prefix, `unknown` and `null` when absent) and the record has `truncated: true`.
 

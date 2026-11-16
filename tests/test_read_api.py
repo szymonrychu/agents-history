@@ -10,7 +10,7 @@ from conftest import asgi_client
 
 from agents_history.api.app import PREFIX
 from agents_history.db.sessions import replace_session
-from agents_history.export import Record, SessionHead, record_text
+from agents_history.export import Line, Record, SessionHead, parse_line, record_text
 
 CREATED = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -436,3 +436,27 @@ async def test_trigram_index_usable(db):
     cur = await db.execute("EXPLAIN SELECT id FROM records WHERE text ILIKE '%needle%'")
     plan = "\n".join(row[0] for row in await cur.fetchall())
     assert "records_text_trgm_idx" in plan
+
+
+async def test_handoff_record_ingested_and_searchable(client, db):
+    # A handoff line parsed like an export line is stored with kind handoff and found by q.
+    line = b'{"kind":"handoff","id":"h1","agent_id":"a1","handoff_text":"x marker"}'
+    parsed = parse_line(Line(line, len(line), False, 2))
+    assert parsed.kind == "handoff"
+    sid = await seed(db, [parsed, rec("message", "other text")])
+    r = await client.get(f"{SESSIONS}/{sid}/records", params={"kind": "handoff", "q": "marker"})
+    assert r.status_code == 200, r.text
+    records = r.json()["records"]
+    assert [x["kind"] for x in records] == ["handoff"]
+    assert records[0]["body"]["handoff_text"] == "x marker"
+    detail = await client.get(f"{SESSIONS}/{sid}")
+    assert detail.json()["record_counts"] == {"handoff": 1, "message": 1}
+
+
+async def test_search_by_preset_id_matches_renamed_preset(client, db):
+    preset = uuid.uuid4()
+    a = await seed(db, slug="old", preset_id=preset, preset_name="maciej-mtg")
+    b = await seed(db, slug="new", preset_id=preset, preset_name="mtg-research-group")
+    await seed(db, slug="unrelated", preset_id=uuid.uuid4(), preset_name="maciej-mtg-2")
+    rows = await listed(client, preset=str(preset))
+    assert {s["session_id"] for s in rows} == {str(a), str(b)}
