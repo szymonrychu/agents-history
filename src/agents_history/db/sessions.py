@@ -101,8 +101,8 @@ async def replace_session(
         cur = await conn.execute(
             "INSERT INTO sessions (session_id, slug, preset_id, preset_name, created_by_service,"
             " created_by_session, created_at, session,"
-            " content_sha256)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            " content_sha256, project, extra_projects)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
             (
                 head.session_id,
                 clean_str(head.slug),
@@ -113,6 +113,8 @@ async def replace_session(
                 head.created_at,
                 Jsonb(jsonb_safe(head.raw)),
                 content_sha256,
+                _optional(head.project),
+                [clean_str(p) for p in head.extra_projects],
             ),
         )
         row = await cur.fetchone()
@@ -144,3 +146,20 @@ async def delete_session(conn: psycopg.AsyncConnection, session_id: uuid.UUID) -
     """Delete one stored session (its records cascade); False when it is not stored."""
     cur = await conn.execute("DELETE FROM sessions WHERE session_id = %s", (session_id,))
     return cur.rowcount > 0
+
+
+async def backfill_projects(
+    conn: psycopg.AsyncConnection, items: list[tuple[uuid.UUID, str, list[str]]]
+) -> int:
+    """Set `project` and `extra_projects` on the stored sessions whose project IS NULL; a session
+    that already has a project (or is not stored) is left alone. Returns the rows updated."""
+    updated = 0
+    async with conn.transaction():
+        for session_id, project, extra in items:
+            cur = await conn.execute(
+                "UPDATE sessions SET project = %s, extra_projects = %s"
+                " WHERE session_id = %s AND project IS NULL",
+                (clean_str(project), [clean_str(p) for p in extra], session_id),
+            )
+            updated += cur.rowcount
+    return updated

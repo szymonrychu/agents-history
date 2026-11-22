@@ -5,6 +5,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 
+import pytest
 import pytest_asyncio
 from conftest import asgi_client
 
@@ -408,6 +409,7 @@ async def test_delete(client, db):
 
 async def test_service_listener_serves_read(service_client, db):
     sid = await seed(db, [rec("message", "needle")])
+    service_client.headers["X-Orch-Projects"] = "*"
     assert [s["session_id"] for s in (await service_client.get(SESSIONS)).json()] == [str(sid)]
     found = await service_client.get(SESSIONS, params={"q": "needle"})
     assert found.json()[0]["hits"] == 1
@@ -460,3 +462,68 @@ async def test_search_by_preset_id_matches_renamed_preset(client, db):
     await seed(db, slug="unrelated", preset_id=uuid.uuid4(), preset_name="maciej-mtg-2")
     rows = await listed(client, preset=str(preset))
     assert {s["session_id"] for s in rows} == {str(a), str(b)}
+
+
+async def seed_projects(db) -> dict[str, uuid.UUID]:
+    """Sessions in alpha, in beta with gamma as an extra, in delta only, and with no project; each
+    holds one record saying `needle`. Keyed by slug."""
+    ids = {}
+    for name, project, extra in (
+        ("alpha", "alpha", []),
+        ("beta", "beta", ["gamma"]),
+        ("delta", "delta", []),
+        ("none", None, []),
+    ):
+        ids[name] = await seed(db, [rec("message", "needle")], slug=name)
+        await db.execute(
+            "UPDATE sessions SET project = %s, extra_projects = %s WHERE session_id = %s",
+            (project, extra, ids[name]),
+        )
+    return ids
+
+
+async def visible(client, ids: dict[str, uuid.UUID], route: str, projects: str) -> set[str]:
+    """The slugs a service read shows under X-Orch-Projects `projects`."""
+    headers = {"X-Orch-Projects": projects}
+    if route == "records":
+        found = set()
+        for slug, sid in ids.items():
+            r = await client.get(f"{SESSIONS}/{sid}/records", headers=headers)
+            assert r.status_code in (200, 404), r.text
+            if r.status_code == 200:
+                found.add(slug)
+        return found
+    params = {"q": "needle"} if route == "search" else {}
+    r = await client.get(SESSIONS, params=params, headers=headers)
+    assert r.status_code == 200, r.text
+    return {s["slug"] for s in r.json()}
+
+
+@pytest.mark.parametrize("route", ["list", "search", "records"])
+@pytest.mark.parametrize(
+    ("projects", "expected"),
+    [
+        ("alpha", {"alpha"}),
+        ("gamma", {"beta"}),
+        ("alpha,delta", {"alpha", "delta"}),
+        ("unknown", set()),
+        ("*", {"alpha", "beta", "delta", "none"}),
+    ],
+)
+async def test_read_filtered_by_projects(service_client, db, route, projects, expected):
+    ids = await seed_projects(db)
+    assert await visible(service_client, ids, route, projects) == expected
+
+
+@pytest.mark.parametrize(("projects", "shown"), [("*", True), ("alpha,beta,gamma,delta", False)])
+async def test_null_project_only_for_star(service_client, db, projects, shown):
+    ids = await seed_projects(db)
+    assert ("none" in await visible(service_client, ids, "list", projects)) is shown
+
+
+async def test_missing_projects_header_400(service_client, db):
+    await seed(db)
+    for path in (SESSIONS, f"{SESSIONS}/{uuid.uuid4()}", f"{SESSIONS}/{uuid.uuid4()}/records"):
+        r = await service_client.get(path)
+        assert r.status_code == 400
+        assert r.json()["error"]["code"] == "projects_required"

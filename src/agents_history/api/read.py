@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Annotated
 
 import psycopg.errors
-from fastapi import APIRouter, Query, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 
 from agents_history.api.errors import ApiError
 from agents_history.api.schemas import (
@@ -55,9 +55,30 @@ def search_errors() -> Iterator[None]:
         raise ApiError(422, "search_timeout", "the search took too long, narrow it") from None
 
 
+def projects_scope(request: Request) -> list[str] | None:
+    """The projects a read is limited to: None (all) on the UI listener, and on the service
+    listener for `X-Orch-Projects: *`; else the comma list. A missing or empty header on the
+    service listener is 400 `projects_required`."""
+    if not request.app.state.require_projects:
+        return None
+    raw = request.headers.get("x-orch-projects", "").strip()
+    if not raw:
+        raise ApiError(400, "projects_required", "X-Orch-Projects is required")
+    if raw == read.ALL_PROJECTS:
+        return None
+    projects = [p for p in (part.strip() for part in raw.split(",")) if p]
+    if not projects:
+        raise ApiError(400, "projects_required", "X-Orch-Projects names no project")
+    return projects
+
+
+Scope = Annotated[list[str] | None, Depends(projects_scope)]
+
+
 @router.get("/sessions")
 async def list_sessions(
     request: Request,
+    scope: Scope,
     q: str | None = None,
     regex: bool = False,
     from_: Annotated[datetime | None, Query(alias="from")] = None,
@@ -68,7 +89,7 @@ async def list_sessions(
     before_id: Annotated[int | None, Query(ge=1)] = None,
 ) -> list[SessionSummary]:
     q = checked_q(q)
-    f = read.SessionFilter(q, regex, from_, to, preset, session, limit, before_id)
+    f = read.SessionFilter(q, regex, from_, to, preset, session, limit, before_id, scope)
     with search_errors():
         async with request.app.state.pool.connection() as conn:
             rows = await read.list_sessions(conn, f, request.app.state.search_timeout_ms)
@@ -91,9 +112,9 @@ def _summary(row: dict) -> SessionSummary:
 
 
 @router.get("/sessions/{session_id}")
-async def get_session(request: Request, session_id: uuid.UUID) -> SessionDetail:
+async def get_session(request: Request, session_id: uuid.UUID, scope: Scope) -> SessionDetail:
     async with request.app.state.pool.connection() as conn:
-        row = await read.get_session(conn, session_id)
+        row = await read.get_session(conn, session_id, scope)
         if row is None:
             raise _not_found()
         agents = await read.agents_of(conn, row["id"])
@@ -104,6 +125,7 @@ async def get_session(request: Request, session_id: uuid.UUID) -> SessionDetail:
 async def get_records(
     request: Request,
     session_id: uuid.UUID,
+    scope: Scope,
     kind: str | None = None,
     q: str | None = None,
     regex: bool = False,
@@ -117,7 +139,7 @@ async def get_records(
     kinds = [k for k in (part.strip() for part in (kind or "").split(",")) if k] or None
     with search_errors():
         async with request.app.state.pool.connection() as conn:
-            row = await read.get_session(conn, session_id)
+            row = await read.get_session(conn, session_id, scope)
             if row is None:
                 raise _not_found()
             records, has_more_before, next_after_id = await read.records_page(

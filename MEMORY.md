@@ -2,6 +2,13 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-22 - project scoping (S-83 step 1)
+
+- `sessions.project` (nullable) and `extra_projects` (text[], default empty) come from the export's session record at ingest and from migration 0003 (NULL-only fill from `session->>'project'`). A non-string project or a non-list extra_projects is ignored, never a refusal (a refused export blocks the discard).
+- The service listener requires `X-Orch-Projects` on every read (`*` = all, else a comma list matching `project = ANY(P) OR extra_projects && P`); the shared read router gets the scope from a dependency keyed on `app.state.require_projects`, so the UI listener stays unscoped. A session outside the scope is a 404, not a 403, so a hive cannot probe ids. A NULL project matches no list, only `*`.
+- `POST /history/v1/ingest/projects` (ingest listener) is the backfill: it updates only rows with `project IS NULL`, so a project set by ingest is never overwritten. A re-delivered export replaces the row and carries the project again.
+- `X-Orch-Projects` is documented in the README only, not in `openapi-service.json`.
+
 ## 2026-11-02 - helm chart (session-history A7)
 
 - The chart is copied from agents-usage with the prober, watcher, claude and orchestrator pieces removed: one api Deployment with a `migrate` init container. The chart passes `helm lint` and the render tests (`mise run test:chart`), the first green since A1 (ruling P-16).

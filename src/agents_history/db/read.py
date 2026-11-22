@@ -20,8 +20,19 @@ MATCHES_PER_SESSION = 3
 
 _SUMMARY = (
     "s.id, s.session_id, s.slug, s.preset_id, s.preset_name, s.created_by_service,"
-    " s.created_by_session, s.created_at, s.discarded_at, s.record_counts, s.bytes"
+    " s.created_by_session, s.created_at, s.discarded_at, s.record_counts, s.bytes,"
+    " s.project, s.extra_projects"
 )
+
+ALL_PROJECTS = "*"
+
+
+def project_clause(projects: list[str] | None) -> str:
+    """SQL narrowing `s` to the sessions of `projects` (param `projects`); empty for None (every
+    project: the UI listener and `*`). A NULL project matches no list."""
+    if projects is None:
+        return ""
+    return "(s.project = ANY(%(projects)s) OR s.extra_projects && %(projects)s)"
 
 
 def escape_like(q: str) -> str:
@@ -63,6 +74,7 @@ class SessionFilter:
     session: str | None = None
     limit: int = 50
     before_id: int | None = None
+    projects: list[str] | None = None
 
 
 def _as_uuid(value: str) -> uuid.UUID | None:
@@ -111,6 +123,9 @@ async def list_sessions(
     Postgres under the statement timeout. Without `q`, `hits` is None."""
     where: list[str] = []
     params: dict[str, Any] = {"limit": f.limit}
+    if f.projects is not None:
+        where.append(project_clause(f.projects))
+        params["projects"] = f.projects
     if f.before_id is not None:
         where.append("s.id < %(before_id)s")
         params["before_id"] = f.before_id
@@ -197,11 +212,16 @@ async def list_sessions(
     return list(sessions.values())
 
 
-async def get_session(conn: psycopg.AsyncConnection, session_id: uuid.UUID) -> dict | None:
-    """The summary columns plus the stored `session` record of one session, or None."""
+async def get_session(
+    conn: psycopg.AsyncConnection, session_id: uuid.UUID, projects: list[str] | None = None
+) -> dict | None:
+    """The summary columns plus the stored `session` record of one session, or None (also when
+    `projects` is given and the session is outside them)."""
+    scope = f" AND {project_clause(projects)}" if projects is not None else ""
     async with conn.cursor(row_factory=dict_row) as cur:
         await cur.execute(
-            f"SELECT {_SUMMARY}, s.session FROM sessions s WHERE s.session_id = %s", (session_id,)
+            f"SELECT {_SUMMARY}, s.session FROM sessions s WHERE s.session_id = %(sid)s{scope}",
+            {"sid": session_id, "projects": projects},
         )
         row = await cur.fetchone()
     return None if row is None else {**row, "hits": None, "matches": []}
