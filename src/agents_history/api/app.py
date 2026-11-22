@@ -65,6 +65,7 @@ def _build_app(settings: Settings, pool: AsyncConnectionPool) -> FastAPI:
     app.state.settings = settings
     app.state.pool = pool
     app.state.search_timeout_ms = int(settings.search_timeout_seconds * 1000)
+    app.state.require_projects = False
 
     @app.exception_handler(ApiError)
     async def _api_error(_: Request, exc: ApiError) -> JSONResponse:
@@ -117,6 +118,7 @@ def create_service_app(settings: Settings, pool: AsyncConnectionPool, tokens: li
     """The service app (the orchestrator admin relay): bearer service tokens instead of the
     allowlist. Read and search only: no delete route is mounted."""
     app = _build_app(settings, pool)
+    app.state.require_projects = True
     app.include_router(read.router, prefix=PREFIX)
     app.add_middleware(ServiceTokenGate, tokens=tokens)
     return app

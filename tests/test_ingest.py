@@ -344,3 +344,39 @@ async def test_body_never_logged(app, aconn, caplog):
     messages = [record.getMessage() for record in caplog.records]
     assert any(str(SID) in message for message in messages)
     assert not any("s3cr3t-value" in message or BEARER in message for message in messages)
+
+
+async def test_ingest_stores_project_fields(app, ui_client):
+    record = {**session_record(SID), "project": "alpha", "extra_projects": ["beta", 3, "gamma"]}
+    body = b"\n".join([json.dumps(record).encode(), *export_lines(SID)[1:]]) + b"\n"
+    assert (await post(app, body, sid=SID)).status_code == 201
+    got = (await ui_client.get(f"{PREFIX}/sessions/{SID}")).json()
+    assert (got["project"], got["extra_projects"]) == ("alpha", ["beta", "gamma"])
+
+
+async def backfill(app, items) -> httpx.Response:
+    async with asgi_client(app, peer=POD_PEER) as http:
+        return await http.post(
+            f"{PREFIX}/ingest/projects",
+            json={"items": items},
+            headers={"Authorization": f"Bearer {BEARER}"},
+        )
+
+
+async def test_backfill_route_fills_only_null(app, aconn):
+    await post(app, export(SID), sid=SID)
+    await post(app, export(SID2), sid=SID2)
+    await aconn.execute("UPDATE sessions SET project = 'kept' WHERE session_id = %s", (SID2,))
+    r = await backfill(
+        app,
+        [
+            {"session_id": str(SID), "project": "alpha", "extra_projects": ["beta"]},
+            {"session_id": str(SID2), "project": "other", "extra_projects": []},
+        ],
+    )
+    assert r.status_code == 200 and r.json() == {"updated": 1}
+    got = await rows(
+        aconn,
+        "SELECT session_id, project, extra_projects FROM sessions ORDER BY id",
+    )
+    assert got == [(SID, "alpha", ["beta"]), (SID2, "kept", [])]

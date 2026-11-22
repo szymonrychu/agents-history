@@ -216,6 +216,13 @@
             "title": "Discarded At",
             "type": "string"
           },
+          "extra_projects": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Extra Projects",
+            "type": "array"
+          },
           "hits": {
             "anyOf": [
               {
@@ -261,6 +268,17 @@
             ],
             "title": "Preset Name"
           },
+          "project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project"
+          },
           "record_counts": {
             "additionalProperties": {
               "type": "integer"
@@ -295,6 +313,8 @@
           "discarded_at",
           "record_counts",
           "bytes",
+          "project",
+          "extra_projects",
           "hits",
           "matches",
           "session",
@@ -342,6 +362,13 @@
             "title": "Discarded At",
             "type": "string"
           },
+          "extra_projects": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Extra Projects",
+            "type": "array"
+          },
           "hits": {
             "anyOf": [
               {
@@ -387,6 +414,17 @@
             ],
             "title": "Preset Name"
           },
+          "project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project"
+          },
           "record_counts": {
             "additionalProperties": {
               "type": "integer"
@@ -416,6 +454,8 @@
           "discarded_at",
           "record_counts",
           "bytes",
+          "project",
+          "extra_projects",
           "hits",
           "matches"
         ],

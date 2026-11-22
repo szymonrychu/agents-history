@@ -15,8 +15,8 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Request, Response
 
 from agents_history.api.errors import ApiError
-from agents_history.api.schemas import IngestOut
-from agents_history.db.sessions import IngestInProgress, replace_session
+from agents_history.api.schemas import BackfillIn, BackfillOut, IngestOut
+from agents_history.db.sessions import IngestInProgress, backfill_projects, replace_session
 from agents_history.export import ExportError, Line, Record, iter_lines, parse_line, session_head
 
 log = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 # Mounted under PREFIX ("/history/v1") by create_ingest_app.
-INGEST_ROUTES = [("POST", "/history/v1/ingest")]
+INGEST_ROUTES = [("POST", "/history/v1/ingest"), ("POST", "/history/v1/ingest/projects")]
 
 
 def session_id_header(value: str | None) -> uuid.UUID:
@@ -106,3 +106,12 @@ async def ingest(request: Request, response: Response) -> IngestOut:
         truncated=result.truncated,
         replaced=result.replaced,
     )
+
+
+@router.post("/ingest/projects")
+async def ingest_projects(request: Request, body: BackfillIn) -> BackfillOut:
+    """Fill `project` and `extra_projects` of stored sessions whose project IS NULL; rows that
+    already have a project are never overwritten. Answers how many rows changed."""
+    items = [(i.session_id, i.project, i.extra_projects) for i in body.items]
+    async with request.app.state.pool.connection() as conn:
+        return BackfillOut(updated=await backfill_projects(conn, items))

@@ -63,6 +63,8 @@ class SessionHead:
     created_at: datetime
     raw: dict[str, Any]
     size: int
+    project: str | None = None
+    extra_projects: tuple[str, ...] = ()
 
 
 async def iter_lines(chunks: AsyncIterator[bytes], max_line_bytes: int) -> AsyncIterator[Line]:
@@ -201,6 +203,10 @@ def _optional_str(value: Any) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _str_list(value: Any) -> tuple[str, ...]:
+    return tuple(v for v in value if isinstance(v, str)) if isinstance(value, list) else ()
+
+
 def session_head(record: Record, header_id: uuid.UUID) -> SessionHead:
     """The first record must be this request's session. The optional fields that do not parse
     become None: a refused export would block the discard forever."""
@@ -225,4 +231,6 @@ def session_head(record: Record, header_id: uuid.UUID) -> SessionHead:
         created_at=created_at,
         raw=body,
         size=record.size,
+        project=_optional_str(body.get("project")),
+        extra_projects=_str_list(body.get("extra_projects")),
     )

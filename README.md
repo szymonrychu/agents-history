@@ -23,6 +23,7 @@ Every error is `{"error": {"code": "...", "message": "..."}}`. Codes shared by t
 | 404 | `not_found` | no such session, or no such route |
 | 405 | `method_not_allowed` | the path exists but not for this method |
 | 422 | `invalid_request` | a parameter or body does not validate |
+| 400 | `projects_required` | service listener: a read without `X-Orch-Projects` |
 
 ## API (UI listener)
 
@@ -43,7 +44,7 @@ Stored sessions, newest first (by internal `id`). Query parameters:
 | `limit` | 1 to 200, default 50 |
 | `before_id` | page cursor: only sessions with an `id` below this; pass the `id` of the last session of the previous page |
 
-Answers a JSON list of sessions: `id`, `session_id`, `slug`, `preset_id`, `preset_name`, `created_by_service`, `created_by_session`, `created_at`, `discarded_at`, `record_counts` (a count per record kind), `bytes`, and with `q`: `hits` (the number of matching records) and `matches` (at most 3 of `record_id`, `kind`, `ts` and a `snippet` of 160 characters centred on the match, with `...` where it was cut). Without `q`, `hits` is `null` and `matches` is empty. Every filter narrows the rows before the page is cut, so a page is never emptied by a later filter.
+Answers a JSON list of sessions: `id`, `session_id`, `slug`, `preset_id`, `preset_name`, `created_by_service`, `created_by_session`, `created_at`, `discarded_at`, `record_counts` (a count per record kind), `bytes`, `project` (nullable), `extra_projects`, and with `q`: `hits` (the number of matching records) and `matches` (at most 3 of `record_id`, `kind`, `ts` and a `snippet` of 160 characters centred on the match, with `...` where it was cut). Without `q`, `hits` is `null` and `matches` is empty. Every filter narrows the rows before the page is cut, so a page is never emptied by a later filter.
 
 Errors: 422 `invalid_request`, `query_too_short`, `invalid_regex` (the pattern does not compile), `search_timeout` (the search ran past `HISTORY_SEARCH_TIMEOUT_SECONDS`; narrow it).
 
@@ -93,6 +94,10 @@ As on the UI listener.
 
 As on the UI listener.
 
+## Project scoping (service listener)
+
+Sessions carry a `project` (nullable) and `extra_projects` (the other projects the session touched), read from the `project` and `extra_projects` fields of the export's session record. Every read on the service listener (list, search, detail, records) must send `X-Orch-Projects`: `*` for all sessions, or a comma list of projects. A list shows the sessions whose `project` is in it or whose `extra_projects` overlap it; a session with no project is shown only for `*`. A session outside the scope answers 404 `not_found` like a missing one. A missing or empty header is 400 `projects_required`. The UI listener is not scoped.
+
 ## Ingest
 
 The ingest listener takes the orchestrator's discard export. Its token can add sessions and nothing else; it must differ from every service token (the process exits 78 otherwise).
@@ -120,6 +125,10 @@ Answers `201` (stored or replaced) or `200` (identical body already stored):
 `records` is the number of records stored (the session record excluded), `truncated` how many were truncated, `replaced` whether an earlier copy was replaced.
 
 Errors: 401 `unauthorized`; 409 `ingest_in_progress`; 422 with `invalid_request` (bad `X-Orch-Session-Id`), `empty_export` (no lines), `bad_line` (a line is not a JSON object with a valid `kind`) or `bad_export` (the first record is not this request's session, or it lacks a slug or a valid `created_at`).
+
+### `POST /history/v1/ingest/projects`
+
+Backfill for sessions stored before they carried a project. Bearer ingest token. Body: `{"items": [{"session_id": "<uuid>", "project": "<name>", "extra_projects": ["<name>"]}]}`, at most 500 items (`extra_projects` optional). Only stored sessions whose `project` IS NULL are updated; a session that already has a project, or is not stored, is skipped. Answers `{"updated": <rows changed>}`. Errors: 401 `unauthorized`; 422 `invalid_request`.
 
 ## Configuration
 

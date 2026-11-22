@@ -14,6 +14,24 @@ class IngestOut(BaseModel):
     replaced: bool
 
 
+class BackfillItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: uuid.UUID
+    project: str = Field(min_length=1)
+    extra_projects: list[str] = []
+
+
+class BackfillIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[BackfillItem] = Field(max_length=500)
+
+
+class BackfillOut(BaseModel):
+    updated: int
+
+
 class MatchView(BaseModel):
     record_id: int
     kind: str
@@ -33,6 +51,8 @@ class SessionSummary(BaseModel):
     discarded_at: datetime
     record_counts: dict[str, int]
     bytes: int
+    project: str | None
+    extra_projects: list[str]
     hits: int | None
     matches: list[MatchView]
 

@@ -1,9 +1,11 @@
 """Schema checks; they need Postgres (testcontainers), so CI is their evidence."""
 
 import uuid
+from importlib import resources
 
 import psycopg
 import pytest
+from psycopg.types.json import Jsonb
 
 from agents_history.db.migrate import migrate
 
@@ -31,7 +33,11 @@ def count(conn, table: str) -> int:
 
 def test_migrate_applies_once(empty_db_url, settings_for):
     settings = settings_for(empty_db_url)
-    assert migrate(settings) == ["0001_init.sql", "0002_content_hash.sql"]
+    assert migrate(settings) == [
+        "0001_init.sql",
+        "0002_content_hash.sql",
+        "0003_session_project.sql",
+    ]
     assert migrate(settings) == []
 
 
@@ -88,3 +94,23 @@ def test_session_constraints(conn):
     conn.execute(insert, (fixed, CREATED))
     with pytest.raises(psycopg.errors.UniqueViolation):
         conn.execute(insert, (fixed, CREATED))
+
+
+def test_migration_fills_from_session_json(empty_db_url, settings_for):
+    migrations = resources.files("agents_history") / "migrations"
+    with psycopg.connect(empty_db_url, autocommit=True) as conn:
+        for name in ("0001_init.sql", "0002_content_hash.sql"):
+            conn.execute((migrations / name).read_text())
+        for body in (
+            {"project": "alpha", "extra_projects": ["beta", "gamma"]},
+            {"project": 7, "extra_projects": "x"},
+            {},
+        ):
+            conn.execute(
+                "INSERT INTO sessions (session_id, slug, created_at, session)"
+                " VALUES (%s, 's', %s, %s)",
+                (uuid.uuid4(), CREATED, Jsonb(body)),
+            )
+        assert "0003_session_project.sql" in migrate(settings_for(empty_db_url))
+        rows = conn.execute("SELECT project, extra_projects FROM sessions ORDER BY id").fetchall()
+    assert rows == [("alpha", ["beta", "gamma"]), (None, []), (None, [])]

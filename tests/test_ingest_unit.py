@@ -66,7 +66,14 @@ def test_ingest_routes_match_the_ingest_app(settings):
         if path.startswith(PREFIX)
         for method in operations
     ]
-    assert routes == INGEST_ROUTES == [("POST", "/history/v1/ingest")]
+    assert (
+        routes
+        == INGEST_ROUTES
+        == [
+            ("POST", "/history/v1/ingest"),
+            ("POST", "/history/v1/ingest/projects"),
+        ]
+    )
 
 
 async def test_wrong_token_401(ingest):
