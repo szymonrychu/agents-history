@@ -6,6 +6,7 @@ import uuid
 from datetime import UTC, datetime
 
 import httpx
+import pytest
 import pytest_asyncio
 from conftest import POD_PEER, asgi_client
 
@@ -380,3 +381,12 @@ async def test_backfill_route_fills_only_null(app, aconn):
         "SELECT session_id, project, extra_projects FROM sessions ORDER BY id",
     )
     assert got == [(SID, "alpha", ["beta"]), (SID2, "kept", [])]
+
+
+@pytest.mark.parametrize(
+    "item",
+    [{"project": "  "}, {"project": "alpha", "extra_projects": [" "]}],
+)
+async def test_backfill_refuses_blank_names(app, item):
+    r = await backfill(app, [{"session_id": str(SID), **item}])
+    assert r.status_code == 422

@@ -273,3 +273,24 @@ def test_session_head_truncated_session_record_is_refused():
     with pytest.raises(ExportError) as exc:
         session_head(record, SESSION_ID)
     assert exc.value.code == "bad_export"
+
+
+@pytest.mark.parametrize(
+    ("project", "extra", "want_project", "want_extra"),
+    [
+        (" alpha ", ["b", None, " ", " c "], "alpha", ("b", "c")),
+        ("  ", [""], None, ()),
+        (7, "x", None, ()),
+    ],
+)
+def test_session_head_project_fields_are_cleaned(project, extra, want_project, want_extra):
+    body = {
+        "kind": "session",
+        "id": str(SESSION_ID),
+        "slug": "s",
+        "created_at": "2026-11-01T10:00:00Z",
+        "project": project,
+        "extra_projects": extra,
+    }
+    head = session_head(parse_line(line(json.dumps(body).encode())), SESSION_ID)
+    assert (head.project, head.extra_projects) == (want_project, want_extra)
