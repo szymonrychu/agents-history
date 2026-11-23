@@ -37,6 +37,7 @@ def test_migrate_applies_once(empty_db_url, settings_for):
         "0001_init.sql",
         "0002_content_hash.sql",
         "0003_session_project.sql",
+        "0004_clean_projects.sql",
     ]
     assert migrate(settings) == []
 
@@ -114,3 +115,19 @@ def test_migration_fills_from_session_json(empty_db_url, settings_for):
         assert "0003_session_project.sql" in migrate(settings_for(empty_db_url))
         rows = conn.execute("SELECT project, extra_projects FROM sessions ORDER BY id").fetchall()
     assert rows == [("alpha", ["beta", "gamma"]), (None, []), (None, [])]
+
+
+def test_migration_0004_cleans_null_and_blank_projects(empty_db_url, settings_for):
+    """Rows as 0003 left them (null element, blanks) are cleaned by re-running 0004's SQL."""
+    migrate(settings_for(empty_db_url))
+    sql_0004 = resources.files("agents_history") / "migrations" / "0004_clean_projects.sql"
+    with psycopg.connect(empty_db_url, autocommit=True) as conn:
+        for project, extra in (("alpha", ["beta", None, " ", " gamma "]), ("  ", ["x"]), ("", [])):
+            conn.execute(
+                "INSERT INTO sessions (session_id, slug, created_at, session, project,"
+                " extra_projects) VALUES (%s, 's', %s, '{}', %s, %s)",
+                (uuid.uuid4(), CREATED, project, extra),
+            )
+        conn.execute(sql_0004.read_text())
+        rows = conn.execute("SELECT project, extra_projects FROM sessions ORDER BY id").fetchall()
+    assert rows == [("alpha", ["beta", "gamma"]), (None, ["x"]), (None, [])]

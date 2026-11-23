@@ -473,6 +473,8 @@ async def seed_projects(db) -> dict[str, uuid.UUID]:
         ("beta", "beta", ["gamma"]),
         ("delta", "delta", []),
         ("none", None, []),
+        ("orphan", None, ["alpha"]),
+        ("nullel", "delta", [None]),
     ):
         ids[name] = await seed(db, [rec("message", "needle")], slug=name)
         await db.execute(
@@ -503,11 +505,12 @@ async def visible(client, ids: dict[str, uuid.UUID], route: str, projects: str) 
 @pytest.mark.parametrize(
     ("projects", "expected"),
     [
-        ("alpha", {"alpha"}),
+        ("alpha", {"alpha"}),  # orphan (NULL project, extra alpha) stays hidden
         ("gamma", {"beta"}),
-        ("alpha,delta", {"alpha", "delta"}),
+        ("alpha,delta", {"alpha", "delta", "nullel"}),
         ("unknown", set()),
-        ("*", {"alpha", "beta", "delta", "none"}),
+        ("*", {"alpha", "beta", "delta", "none", "orphan", "nullel"}),
+        ("delta", {"delta", "nullel"}),
     ],
 )
 async def test_read_filtered_by_projects(service_client, db, route, projects, expected):

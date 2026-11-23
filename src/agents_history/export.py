@@ -203,8 +203,16 @@ def _optional_str(value: Any) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _project(value: Any) -> str | None:
+    """A project name stripped; blank or not a string is None (a blank project would be
+    visible to no hive but `*`)."""
+    return value.strip() or None if isinstance(value, str) else None
+
+
 def _str_list(value: Any) -> tuple[str, ...]:
-    return tuple(v for v in value if isinstance(v, str)) if isinstance(value, list) else ()
+    if not isinstance(value, list):
+        return ()
+    return tuple(p for p in map(_project, value) if p)
 
 
 def session_head(record: Record, header_id: uuid.UUID) -> SessionHead:
@@ -231,6 +239,6 @@ def session_head(record: Record, header_id: uuid.UUID) -> SessionHead:
         created_at=created_at,
         raw=body,
         size=record.size,
-        project=_optional_str(body.get("project")),
+        project=_project(body.get("project")),
         extra_projects=_str_list(body.get("extra_projects")),
     )

@@ -77,3 +77,9 @@ Lessons that outlive a session. Newest first.
 - `pg_trgm` is created in `0001_init.sql`: it is a trusted extension since PG 13, so the CNPG database owner may create it without superuser rights. The schema is whole in 0001 because nothing has been released yet.
 - The ingest and service token files must hold disjoint tokens (exit 78 naming `HISTORY_INGEST_TOKENS_FILE`): the ingest token is the orchestrator's discard delivery, the service token the read side, so one leaked token never opens both.
 - The three listener factories only build the shared app (error shape, probes, `search_timeout_ms`) and the guard; later tasks `include_router` into them, disjointly per listener.
+
+## 2026-11-23 - project fields hardening (S-83 final review)
+
+- 0003 copied `extra_projects` from session JSON with `jsonb_array_elements_text`, so a JSON null became a NULL array element and GET /sessions failed validation. Migrations are forward-only (0.2.0 ran 0003), so `0004_clean_projects.sql` drops NULL/blank elements, strips names and turns a blank project into NULL; the read path also selects `array_remove(extra_projects, NULL)`.
+- `project_clause` requires `project IS NOT NULL`: a NULL project means "not known yet" and must stay visible to `*` only, even when extra_projects is set.
+- Export (`session_head`) and the backfill schema strip project names and drop blanks, so a blank project is never stored.

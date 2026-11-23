@@ -21,7 +21,7 @@ MATCHES_PER_SESSION = 3
 _SUMMARY = (
     "s.id, s.session_id, s.slug, s.preset_id, s.preset_name, s.created_by_service,"
     " s.created_by_session, s.created_at, s.discarded_at, s.record_counts, s.bytes,"
-    " s.project, s.extra_projects"
+    " s.project, array_remove(s.extra_projects, NULL) AS extra_projects"
 )
 
 ALL_PROJECTS = "*"
@@ -29,10 +29,13 @@ ALL_PROJECTS = "*"
 
 def project_clause(projects: list[str] | None) -> str:
     """SQL narrowing `s` to the sessions of `projects` (param `projects`); empty for None (every
-    project: the UI listener and `*`). A NULL project matches no list."""
+    project: the UI listener and `*`). A NULL project matches no list, extras or not."""
     if projects is None:
         return ""
-    return "(s.project = ANY(%(projects)s) OR s.extra_projects && %(projects)s)"
+    return (
+        "(s.project IS NOT NULL AND"
+        " (s.project = ANY(%(projects)s) OR s.extra_projects && %(projects)s))"
+    )
 
 
 def escape_like(q: str) -> str:

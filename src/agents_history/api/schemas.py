@@ -2,9 +2,9 @@
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 
 class IngestOut(BaseModel):
@@ -14,12 +14,15 @@ class IngestOut(BaseModel):
     replaced: bool
 
 
+Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
 class BackfillItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     session_id: uuid.UUID
-    project: str = Field(min_length=1)
-    extra_projects: list[str] = []
+    project: Name
+    extra_projects: list[Name] = []
 
 
 class BackfillIn(BaseModel):
