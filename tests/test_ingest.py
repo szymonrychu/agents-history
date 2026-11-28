@@ -12,6 +12,8 @@ from conftest import POD_PEER, asgi_client
 
 from agents_history.api.app import PREFIX, create_ingest_app
 
+pytestmark = pytest.mark.critical
+
 BEARER = "ingestbearer"
 SID = uuid.UUID("6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b")
 SID2 = uuid.UUID("7a2d3b4c-5e6f-4a71-9b8c-0d1e2f3a4b5c")

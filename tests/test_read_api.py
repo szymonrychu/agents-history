@@ -13,6 +13,8 @@ from agents_history.api.app import PREFIX
 from agents_history.db.sessions import replace_session
 from agents_history.export import Line, Record, SessionHead, parse_line, record_text
 
+pytestmark = pytest.mark.critical
+
 CREATED = datetime(2026, 1, 1, tzinfo=UTC)
 
 

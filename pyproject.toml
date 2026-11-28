@@ -39,7 +39,14 @@ packages = ["src/agents_history"]
 pythonpath = ["src", "tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "-q"
+addopts = "-q --strict-markers"
+markers = [
+    "unit: fast tests without external services",
+    "integration: tests that need a real dependency such as Postgres",
+    "e2e: end-to-end tests across processes",
+    "live: tests against live external systems",
+    "critical: guards user-visible flows, data integrity or security; the test:critical fast lane",
+]
 
 [tool.ruff]
 line-length = 100
@@ -47,3 +54,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+extend-select = ["C90", "PLR0911", "PLR0912", "PLR0915", "RET", "ERA"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
