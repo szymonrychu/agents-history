@@ -4,10 +4,14 @@ Sessions are seeded through `replace_session`; `discarded_at` is moved with UPDA
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from agents_history.api.app import PREFIX
 from agents_history.db.sessions import replace_session
 from agents_history.export import Record, SessionHead, record_text
 from agents_history.sweep import LOCK_KEY, sweep_once
+
+pytestmark = pytest.mark.critical
 
 SETTINGS = f"{PREFIX}/settings"
 CREATED = datetime(2026, 1, 1, tzinfo=UTC)

@@ -1,9 +1,12 @@
 """Pure helpers of search and the read routes per listener (no database)."""
 
+import pytest
 from conftest import DownPool
 
 from agents_history.api.app import PREFIX, create_app, create_ingest_app, create_service_app
 from agents_history.db.read import escape_like, snippet
+
+pytestmark = pytest.mark.critical
 
 
 def test_escape_like():

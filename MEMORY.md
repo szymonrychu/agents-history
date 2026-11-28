@@ -2,6 +2,13 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-28 - tests and lint tightening (S-99)
+
+- Markers unit, integration, e2e, live, critical registered with --strict-markers; critical marks ingest (store), read API (search, user-only delete), retention sweep, search and migrations tests; `mise run test:critical` and the CI job test-critical run them.
+- Deleted B3 tests (settings defaults and refusals, chart render, Dockerfile and CI workflow structure, README text, next_version copy): 64 tests. Kept the OpenAPI snapshot and route-per-listener tests and the chart-version script test.
+- ruff gains C90, PLR0911/0912/0915, RET, ERA (max-complexity 10); no existing violations, so no noqa baseline. The chart test:chart task is gone, lint:chart stays.
+- The release job calls the `next-version` CLI of agents-common (pinned tag) instead of a copied scripts/next_version.py; output was identical before the copy was removed.
+
 ## 2026-11-22 - project scoping (S-83 step 1)
 
 - `sessions.project` (nullable) and `extra_projects` (text[], default empty) come from the export's session record at ingest and from migration 0003 (NULL-only fill from `session->>'project'`). A non-string project or a non-list extra_projects is ignored, never a refusal (a refused export blocks the discard).
@@ -11,7 +18,7 @@ Lessons that outlive a session. Newest first.
 
 ## 2026-11-02 - helm chart (session-history A7)
 
-- The chart is copied from agents-usage with the prober, watcher, claude and orchestrator pieces removed: one api Deployment with a `migrate` init container. The chart passes `helm lint` and the render tests (`mise run test:chart`), the first green since A1 (ruling P-16).
+- The chart is copied from agents-usage with the prober, watcher, claude and orchestrator pieces removed: one api Deployment with a `migrate` init container. The chart passes `helm lint` (the render tests were removed in S-99), the first green since A1 (ruling P-16).
 - The Service is named `<fullname>` (not `<fullname>-api`) so agents-helmfile and the orchestrator reach it as `http://agents-history:8001` (service) and `:8002` (ingest) with release name `agents-history`.
 - The api memory limit is 512Mi (agents-usage: 256Mi): ingest streams line by line, but search results (three snippet windows per session, up to 200 sessions a page) are built in memory.
 - Both token Secrets are created by agents-helmfile and referenced by name; the chart never renders either token. The init container mounts no token volume and sees no `*_TOKENS_FILE` env.

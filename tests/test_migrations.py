@@ -9,6 +9,8 @@ from psycopg.types.json import Jsonb
 
 from agents_history.db.migrate import migrate
 
+pytestmark = pytest.mark.critical
+
 CREATED = "2026-11-01T10:00:00Z"
 
 
