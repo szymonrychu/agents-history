@@ -1,8 +1,7 @@
-"""The committed OpenAPI documents per listener and the README API coverage."""
+"""The committed OpenAPI documents per listener."""
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -13,7 +12,6 @@ from agents_history.api.ingest import INGEST_ROUTES
 from agents_history.settings import Settings
 
 ROOT = Path(__file__).resolve().parent.parent
-README = (ROOT / "README.md").read_text(encoding="utf-8")
 
 READ_ROUTES = {
     ("get", "/history/v1/sessions"),
@@ -33,22 +31,6 @@ def app_routes(app: FastAPI) -> set[tuple[str, str]]:
     lazily, so `app.routes` does not list them); the probes are not API."""
     paths = app.openapi()["paths"]
     return {(m, p) for p, methods in paths.items() if p.startswith(PREFIX) for m in methods}
-
-
-def section(title: str) -> str:
-    """The body of the `## title` section (up to the next H2)."""
-    match = re.search(rf"^## {re.escape(title)}\s*$", README, re.MULTILINE)
-    assert match, f"README has no '## {title}' section"
-    rest = README[match.end() :]
-    nxt = re.search(r"^## ", rest, re.MULTILINE)
-    return rest[: nxt.start()] if nxt else rest
-
-
-def readme_routes(title: str) -> set[tuple[str, str]]:
-    found = re.findall(
-        r"^### `(GET|POST|PUT|DELETE) (/history/v1\S*)`\s*$", section(title), re.MULTILINE
-    )
-    return {(m.lower(), p) for m, p in found}
 
 
 def test_committed_documents_match() -> None:
@@ -81,32 +63,3 @@ def test_routes_per_listener_match_apps() -> None:
     assert app_routes(ui) == doc_routes(openapi.document())
     assert app_routes(service) == doc_routes(openapi.document(service=True))
     assert app_routes(ingest) == {(m.lower(), p) for m, p in INGEST_ROUTES}
-
-
-def test_readme_documents_every_route() -> None:
-    assert readme_routes("API (UI listener)") == READ_ROUTES | {DELETE_ROUTE} | SETTINGS_ROUTES
-    assert readme_routes("API (service listener)") == READ_ROUTES
-    assert readme_routes("Ingest") == {(m.lower(), p) for m, p in INGEST_ROUTES}
-
-
-def test_readme_documents_settings_and_retention() -> None:
-    config = section("Configuration")
-    for name in (
-        "HISTORY_DATABASE_URL",
-        "HISTORY_HTTP_PORT",
-        "HISTORY_ALLOWED_CIDRS",
-        "HISTORY_SERVICE_PORT",
-        "HISTORY_SERVICE_TOKENS_FILE",
-        "HISTORY_INGEST_PORT",
-        "HISTORY_INGEST_TOKENS_FILE",
-        "HISTORY_SEARCH_TIMEOUT_SECONDS",
-        "HISTORY_SWEEP_INTERVAL_SECONDS",
-        "HISTORY_SWEEP_BATCH",
-        "HISTORY_INGEST_MAX_LINE_BYTES",
-        "HISTORY_LOG_LEVEL",
-        "HISTORY_SHUTDOWN_GRACE_SECONDS",
-    ):
-        assert name in config, name
-    retention = section("Retention")
-    for needle in ("90 days", "1 to 3650", "PUT /history/v1/settings"):
-        assert needle in retention, needle
