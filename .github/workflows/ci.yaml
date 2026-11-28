@@ -110,7 +110,7 @@ jobs:
         run: helm push "agents-history-$VERSION.tgz" "$CHART_REPO"
 
   release:
-    needs: [lint, test, chart, images, chart-publish]
+    needs: [lint, test, chart, images, chart-publish, test-critical]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
